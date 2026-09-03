@@ -45,8 +45,12 @@ To run it from anywhere, link it onto your `PATH`. The launcher resolves the
 symlink, so it finds the repository wherever you cloned it:
 
 ```sh
+mkdir -p ~/.local/bin
 ln -s "$PWD/orca-usage" ~/.local/bin/orca-usage
 ```
+
+`~/.local/bin` is not on the default macOS `PATH`. Add it in your shell rc if
+it is missing: `export PATH="$HOME/.local/bin:$PATH"`.
 
 ## Usage
 
