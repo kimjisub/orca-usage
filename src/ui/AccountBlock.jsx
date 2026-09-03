@@ -6,9 +6,12 @@ import { Bar } from './Bar.jsx'
 
 /** 계정 하나가 차지하는 줄 수. 클릭 좌표를 행으로 되짚을 때 쓴다. */
 // 배지는 계정마다 하나만 붙는다. 셋 넷씩 달리면 어느 것이 급한지 알 수 없다.
-// 막힌 계정은 배지 대신 이름을 빨갛게 칠한다. 배지 자리는 "지금 어떻게 할까" 를
-// 답하는 자리라, 아예 못 쓰는 계정은 이름에서 바로 걸러지는 편이 빠르다.
+//
+// 한도가 찬 것도 배지로 말한다. 이름 색으로만 알리면 "왜 빨간가" 가 화면에
+// 안 적혀 있어 매번 숫자를 되짚어야 한다. 이름 색은 자격증명이 끊긴 계정에
+// 남겨 둔다. 그쪽은 한도와 달리 기다려도 안 풀리고 사람이 로그인해야 한다.
 export const BADGES = {
+  blocked: { text: '한도 임박', color: 'red' },
   spurt: { text: '소진 권장', color: '#ff9f0a' },
   use: { text: '우선 사용', color: 'green' },
   spare: { text: '사용 자제', color: 'gray' },
@@ -39,7 +42,6 @@ export function AccountBlock({
 }) {
   const tag = staleTag(row, now, staleAfterMs)
   const mark = BADGES[badge]
-  const blocked = badge === 'blocked' 
   const windows = visibleWindows(row.usage?.windows, showModelWindows)
   return (
     <>
@@ -50,7 +52,7 @@ export function AccountBlock({
         {'  '}
         {/* 활성 표시를 이름 앞에 둔다. 자리는 늘 잡아 두어야 줄이 안 밀린다. */}
         <Text color="yellow" bold>{active ? `${ACTIVE_MARK} ` : '  '}</Text>
-        <Text color={blocked ? 'red' : 'white'} bold>{row.email}</Text>
+        <Text color={row.authFailed ? 'red' : 'white'} bold>{row.email}</Text>
         {row.label ? <Text color="gray">{`  [${row.label}]`}</Text> : null}
         {mark ? <Text color={mark.color} bold>{`  ${mark.text}`}</Text> : null}
         {tag ? <Text color="gray">{`  ${tag}`}</Text> : null}

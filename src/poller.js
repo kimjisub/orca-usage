@@ -63,8 +63,13 @@ export async function pollOnce(accounts, {
           // 갱신 성공은 백그라운드가 알아서 한 일이라 화면에 남길 이유가 없다.
           note = null
         }
+        // 토큰을 받아 냈으니 앞서 남은 인증 실패는 풀린 것으로 본다.
+        delete entry.authFailed
       } catch (error) {
         note = error instanceof CredentialError ? error.message : String(error)
+        // 자격증명 자체가 안 되는 것은 조회 실패와 다르다. 백오프로 풀리지 않고
+        // 사람이 다시 로그인해야 하므로 화면에서 따로 알린다.
+        entry.authFailed = true
       }
 
       if (token) {
@@ -99,6 +104,7 @@ export async function pollOnce(accounts, {
       refreshedAt: entry.refreshedAt ?? null,
       expiresAt: entry.expiresAt ?? null,
       retryUntil: entry.retryUntil ?? null,
+      authFailed: Boolean(entry.authFailed),
       note,
     }
     rows.push(row)
@@ -122,6 +128,7 @@ export function rowsFromCache(accounts) {
       refreshedAt: entry.refreshedAt ?? null,
       expiresAt: entry.expiresAt ?? null,
       retryUntil: entry.retryUntil ?? null,
+      authFailed: Boolean(entry.authFailed),
       note: null,
     }
   })

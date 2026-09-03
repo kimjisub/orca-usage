@@ -61,7 +61,7 @@ const BADGE_LEGEND = [
   BADGES.use,
   BADGES.spurt,
   BADGES.spare,
-  { text: '막힘', color: 'red' },
+  BADGES.blocked,
 ]
 
 function ActionBar() {

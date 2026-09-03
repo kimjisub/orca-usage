@@ -75,7 +75,8 @@ Arrow keys or `j` / `k` move the selection. Clicking a row works too.
 | Marker | Meaning |
 | --- | --- |
 | `*` | The account Orca is attached to right now |
-| Red name | 5h or 7d is at 90% or more, so it is unusable for now |
+| 한도 임박 | 5h or 7d is at 90% or more, so it is unusable for now |
+| Red name | Credentials are broken; sign in again. The reason is printed next to the name |
 | 우선 사용 | Best account to be on |
 | 소진 권장 | Weekly quota large enough that it will expire unused; spend it |
 | 사용 자제 | More than half the week is gone; save this one |
