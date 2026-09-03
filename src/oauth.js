@@ -20,16 +20,21 @@ function timeout(ms) {
   return { signal: controller.signal, done: () => clearTimeout(timer) }
 }
 
-/** 갱신된 자격증명 JSON 문자열. 실패하면 { error } 를 담아 원본을 돌려준다. */
+/**
+ * 갱신된 자격증명 JSON 문자열. 실패하면 { error } 를 담아 원본을 돌려준다.
+ *
+ * fatal 은 사람이 Orca 에서 다시 로그인해야 풀리는 실패다. 네트워크가 끊겼거나
+ * 서버가 5xx 를 준 것은 다음 조회에 나을 수 있으므로 여기 들지 않는다.
+ */
 async function refreshCredentials(payload) {
   let data
   try {
     data = JSON.parse(payload)
   } catch {
-    return { payload, error: '자격증명 형식 이상' }
+    return { payload, error: '자격증명 형식 이상', fatal: true }
   }
   const oauth = data.claudeAiOauth
-  if (!oauth?.refreshToken) return { payload, error: '리프레시 토큰 없음' }
+  if (!oauth?.refreshToken) return { payload, error: '리프레시 토큰 없음', fatal: true }
 
   const guard = timeout(HTTP_TIMEOUT_MS)
   let response
@@ -56,9 +61,9 @@ async function refreshCredentials(payload) {
       marker = JSON.parse(await response.text()).error
     } catch { /* 본문이 JSON 이 아니면 코드로만 판단한다 */ }
     if (marker === 'invalid_grant') {
-      return { payload, error: '리프레시 토큰 폐기됨 (Orca 에서 재로그인이 필요합니다)' }
+      return { payload, error: '리프레시 토큰 폐기됨 (Orca 에서 재로그인이 필요합니다)', fatal: true }
     }
-    if (marker === 'invalid_client') return { payload, error: '클라이언트 거부됨' }
+    if (marker === 'invalid_client') return { payload, error: '클라이언트 거부됨', fatal: true }
     return { payload, error: `갱신 실패 HTTP ${response.status}` }
   }
 
@@ -87,7 +92,9 @@ export async function ensureToken(accountId, { allowRefresh, lastRefreshAt = 0, 
   if (!stale) {
     return { token: oauth.accessToken, note: null, refreshed: false, expiresAt: oauth.expiresAt }
   }
-  const base = { token: oauth.accessToken, refreshed: false, expiresAt: oauth.expiresAt }
+  const base = {
+    token: oauth.accessToken, refreshed: false, expiresAt: oauth.expiresAt, authFailed: false,
+  }
   if (!allowRefresh) return { ...base, note: '토큰 만료 (갱신이 꺼져 있습니다)' }
   if (!force && Date.now() - lastRefreshAt < REFRESH_MIN_GAP_MS) {
     return { ...base, note: '토큰 만료 (직전 갱신이 최근이라 건너뜁니다)' }
@@ -104,7 +111,13 @@ export async function ensureToken(accountId, { allowRefresh, lastRefreshAt = 0, 
 
     const result = await refreshCredentials(payload)
     if (result.error) {
-      return { token: oauth.accessToken, note: result.error, refreshed: false, expiresAt: oauth.expiresAt }
+      return {
+        token: oauth.accessToken,
+        note: result.error,
+        refreshed: false,
+        expiresAt: oauth.expiresAt,
+        authFailed: Boolean(result.fatal),
+      }
     }
 
     // 되쓰기가 이 작업의 위험한 부분이다. 원본을 남기고, 쓰고, 다시 읽어 맞는지 본다.

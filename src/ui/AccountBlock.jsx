@@ -29,8 +29,10 @@ export function blockHeight(row, showModelWindows = true) {
  * 값이 안 바뀌면 그건 알려야 한다. 낡은 숫자를 최신으로 읽게 두면 안 된다.
  */
 function staleTag(row, now, staleAfterMs) {
-  if (!row.usage) return '대기 중'
+  // 사유가 대기 안내보다 먼저다. 자격증명이 끊긴 계정은 조회가 한 번도 성공한
+  // 적이 없어 usage 가 비는데, 순서가 반대면 이름만 빨갛고 까닭이 안 적힌다.
   if (row.note) return row.note
+  if (!row.usage) return '대기 중'
   if (row.fetchedAt && now - row.fetchedAt > staleAfterMs) {
     return `${shortSpan(now - row.fetchedAt)} 전 값`
   }

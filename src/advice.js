@@ -113,6 +113,9 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
       index: row.index,
       email: row.email,
       hasData: Boolean(row.usage?.windows?.length),
+      // 자격증명이 끊긴 계정은 숫자가 아무리 좋아도 붙을 수 없다. 캐시에 남은
+      // 사용량만 보면 여기로 옮겨 놓고 새 세션마다 인증에 실패하게 된다.
+      authFailed: Boolean(row.authFailed),
       shortPct,
       weeklyPct,
       // 지금 당장 더 태울 수 있는 양. 5시간 창이 곧 회복되므로 한때의 제약이다.
@@ -168,7 +171,8 @@ export function advise(rows, historyById, now = Date.now()) {
   const scored = scoreAccounts(rows, historyById, now).filter((entry) => entry.hasData)
   if (scored.length === 0) return null
 
-  const open = scored.filter((entry) => !entry.shortBlocked && !entry.weeklyBlocked)
+  const open = scored.filter((entry) =>
+    !entry.shortBlocked && !entry.weeklyBlocked && !entry.authFailed)
 
   // 순서가 곧 이 도구의 판단이다. 주간이 먼저고 5시간 창이 나중이다.
   //
@@ -199,7 +203,7 @@ export function advise(rows, historyById, now = Date.now()) {
   // 큰 작업은 5시간 창을 보지 않는다. 지금 막혀 있어도 몇 시간이면 풀리고,
   // 긴 작업에서 정작 발목을 잡는 것은 주간 여력이다.
   const heavy = [...scored]
-    .filter((entry) => !entry.weeklyBlocked)
+    .filter((entry) => !entry.weeklyBlocked && !entry.authFailed)
     .sort((a, b) => b.reserve - a.reserve || b.burst - a.burst)[0] ?? null
 
   // 아껴 둘 계정은 주간을 많이 썼으면서 리셋이 아직 먼 쪽이다. 리셋이 코앞이면

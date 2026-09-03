@@ -11,7 +11,17 @@ const SECURITY_STDIN_LIMIT = 4096 - 64
 // 잠금을 쥔 프로세스가 죽어 파일만 남았을 때 이 시간이 지나면 뺏는다.
 const LOCK_STALE_MS = 120_000
 
-export class CredentialError extends Error {}
+export class CredentialError extends Error {
+  /**
+   * @param {string} message
+   * @param {{fatal?: boolean}} options 다시 로그인해야 풀리는 실패면 fatal 이다.
+   *   키체인이 잠깐 잠겼거나 응답이 늦은 것은 다음 조회에 나으므로 아니다.
+   */
+  constructor(message, { fatal = false } = {}) {
+    super(message)
+    this.fatal = fatal
+  }
+}
 
 export async function readCredentials(accountId) {
   try {
@@ -20,7 +30,9 @@ export async function readCredentials(accountId) {
     ], { timeout: 15_000, maxBuffer: 1 << 20 })
     return stdout.trim()
   } catch (error) {
-    if (error.code === 44 || error.code === 1) throw new CredentialError('키체인 항목 없음')
+    if (error.code === 44 || error.code === 1) {
+      throw new CredentialError('키체인 항목 없음', { fatal: true })
+    }
     throw new CredentialError('키체인 접근 실패')
   }
 }
