@@ -3,8 +3,15 @@
 #
 # PATH 에 심볼릭 링크로 걸어 두고 쓰는 경우가 많다. $0 을 그대로 쓰면 링크가
 # 놓인 자리를 저장소로 잘못 짚으므로 링크를 끝까지 따라간 뒤 기준을 잡는다.
+# 링크가 서로를 가리키면 이 반복은 끝나지 않는다. readlink -f 와 같은 한도를 둔다.
 target=$0
+hops=0
 while [ -L "$target" ]; do
+  hops=$((hops + 1))
+  if [ "$hops" -gt 40 ]; then
+    echo "orca-usage: 심볼릭 링크가 서로를 가리킵니다: $0" >&2
+    exit 1
+  fi
   link=$(readlink "$target")
   case $link in
     /*) target=$link ;;
