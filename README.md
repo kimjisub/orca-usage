@@ -90,7 +90,7 @@ Terminals that are already open keep running on the old account. The new one app
 
 Orca stores each Claude account under `~/Library/Application Support/orca/claude-accounts/`, with its OAuth credentials in the login keychain. orca-usage reads those credentials, refreshes the access token when it has expired, and calls Anthropic's usage endpoint for each account.
 
-The account Orca is currently attached to comes from the Orca runtime over its local Unix socket, not from `~/.claude.json` — that file records where Claude Code last logged in, which drifts from Orca's choice as soon as you switch accounts in the app.
+The account Orca is currently attached to comes from the Orca runtime over its local Unix socket, not from `~/.claude.json`. That file records where Claude Code last logged in, which drifts from Orca's choice as soon as you switch accounts in the app.
 
 Samples are cached under `~/.cache/orca-usage/` so restarting the dashboard does not lose the history or spend API calls redrawing what it already knows.
 
