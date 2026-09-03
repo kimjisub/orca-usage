@@ -1,0 +1,43 @@
+{
+  "name": "orca-usage",
+  "version": "1.0.0",
+  "description": "Terminal dashboard for the Claude accounts managed by Orca: rate-limit usage, history graphs, and automatic account switching.",
+  "license": "MIT",
+  "author": "Jisub Kim (https://github.com/kimjisub)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kimjisub/orca-usage.git"
+  },
+  "homepage": "https://github.com/kimjisub/orca-usage#readme",
+  "bugs": {
+    "url": "https://github.com/kimjisub/orca-usage/issues"
+  },
+  "keywords": [
+    "claude",
+    "orca",
+    "cli",
+    "tui",
+    "ink",
+    "rate-limit",
+    "usage"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "type": "module",
+  "bin": {
+    "orca-usage": "./orca-usage"
+  },
+  "scripts": {
+    "start": "bun run src/cli.jsx",
+    "once": "bun run src/cli.jsx --once",
+    "build": "esbuild src/cli.jsx --bundle --platform=node --format=esm --outfile=bin/orca-usage.js --packages=external --banner:js='#!/usr/bin/env node'"
+  },
+  "dependencies": {
+    "ink": "^7.1.1",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
