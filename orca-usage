@@ -1,3 +1,15 @@
 #!/bin/sh
 # bun 이 JSX 를 그대로 실행하므로 빌드 단계가 없다.
-exec bun run "$(cd "$(dirname "$0")" && pwd)/src/cli.jsx" "$@"
+#
+# PATH 에 심볼릭 링크로 걸어 두고 쓰는 경우가 많다. $0 을 그대로 쓰면 링크가
+# 놓인 자리를 저장소로 잘못 짚으므로 링크를 끝까지 따라간 뒤 기준을 잡는다.
+target=$0
+while [ -L "$target" ]; do
+  link=$(readlink "$target")
+  case $link in
+    /*) target=$link ;;
+    *) target=$(dirname "$target")/$link ;;
+  esac
+done
+root=$(cd "$(dirname "$target")" && pwd)
+exec bun run "$root/src/cli.jsx" "$@"

@@ -41,10 +41,11 @@ bun install
 ./orca-usage
 ```
 
-To run it from anywhere, link it onto your `PATH`:
+To run it from anywhere, link it onto your `PATH`. The launcher resolves the
+symlink, so it finds the repository wherever you cloned it:
 
 ```sh
-ln -s "$PWD/orca-usage" /usr/local/bin/orca-usage
+ln -s "$PWD/orca-usage" ~/.local/bin/orca-usage
 ```
 
 ## Usage
