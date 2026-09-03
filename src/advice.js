@@ -131,6 +131,14 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
       // 리셋까지 다 쓰려면 시간당 얼마를 태워야 하는가. 클수록 먼저 손대야 한다.
       shortNeed,
       weeklyNeed: burnNeeded(reserve, weeklyResetIn),
+      // 그 속도를 실제로 낼 수 있는 속도와 견준 값. 0 이면 가만 둬도 리셋 전에
+      // 다 쓴다는 뜻이라 급할 것이 없다.
+      //
+      // 순위에 need 를 그대로 쓰면 안 된다. 넷 다 넉넉한 상황에서도 0.75 와
+      // 0.57 처럼 값이 늘 달라 여기서 결판이 나고, 정작 "지금 붙으면 얼마나
+      // 일할 수 있나" 를 못 본다. 여유로운 계정끼리는 나란히 두고 다음 기준으로
+      // 넘긴다.
+      weeklyUrgency: Math.max(0, burnNeeded(reserve, weeklyResetIn) / weeklyMaxBurn - 1),
       // 지금 붙으면 다섯 시간 동안 얼마나 태울 수 있나.
       reachable: reachableIn(burst, shortResetIn),
     }
@@ -165,9 +173,10 @@ export function advise(rows, historyById, now = Date.now()) {
   // 순서가 곧 이 도구의 판단이다. 주간이 먼저고 5시간 창이 나중이다.
   //
   // 1. 주간에서 확실히 버려질 양. 며칠을 기다려야 돌아오므로 되찾을 수 없다.
-  // 2. 주간을 리셋 전에 다 쓰려면 시간당 얼마를 태워야 하는가. 남은 양만 보면
-  //    사흘 뒤 리셋과 엿새 뒤 리셋이 같아 보이는데, 시간으로 나누면 앞의 것이
-  //    두 배 급하다는 사실이 드러난다.
+  // 2. 주간을 리셋 전에 다 쓰지 못할 판인가. 남은 양만 보면 사흘 뒤 리셋과
+  //    엿새 뒤 리셋이 같아 보이는데, 시간으로 나누면 앞의 것이 두 배 급하다는
+  //    사실이 드러난다. 다만 실제로 낼 수 있는 속도로 다 쓸 수 있는 계정끼리는
+  //    여기서 가르지 않는다. 둘 다 넉넉하다는 뜻이라 순위의 근거가 못 된다.
   // 3. 주간 사정이 비슷할 때에야 5시간 창을 본다. 그것도 지금 남은 양이 아니라
   //    다섯 시간 동안 태울 수 있는 총량이다. 곧 리셋되는 계정은 남은 양이 적어도
   //    잠시 뒤 쿼터가 통째로 새로 채워진다.
@@ -179,8 +188,11 @@ export function advise(rows, historyById, now = Date.now()) {
   const coarse = (value) => (Number.isFinite(value) ? Math.round(value * 100) / 100 : 1e9)
   const byUrgency = (a, b) => (
     (Math.round(b.weeklyWaste) - Math.round(a.weeklyWaste))
-    || (coarse(b.weeklyNeed) - coarse(a.weeklyNeed))
+    || (coarse(b.weeklyUrgency) - coarse(a.weeklyUrgency))
     || (Math.round(b.reachable) - Math.round(a.reachable))
+    // 다섯 시간 동안 태울 수 있는 양이 같으면 주간 여력이 큰 쪽으로 간다.
+    // 5시간 창이 둘 다 비어 있을 때 이 자리가 실제로 순위를 가른다.
+    || (Math.round(b.reserve) - Math.round(a.reserve))
   )
 
   const use = [...open].sort(byUrgency)[0] ?? null
