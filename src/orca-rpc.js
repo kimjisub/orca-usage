@@ -40,7 +40,10 @@ export function call(method, params = {}) {
       reject(new Error(`${method} 응답이 없습니다`))
     }, TIMEOUT_MS)
 
+    let settled = false
     const done = (error, value) => {
+      if (settled) return
+      settled = true
       clearTimeout(timer)
       socket.end()
       if (error) reject(error)
@@ -69,6 +72,10 @@ export function call(method, params = {}) {
       }
     })
     socket.on('error', (error) => done(error))
+    // 답 없이 닫히는 경우가 있다. 런타임이 재시작돼 토큰이 안 맞거나 내려가는
+    // 중이면 FIN 만 온다. 여기서 안 끝내면 타임아웃까지 10초를 기다리고, 폴링이
+    // 이것을 먼저 기다리므로 직접 조회로 넘어가는 것도 그만큼 늦다.
+    socket.on('close', () => done(new Error(`${method} 연결이 답 없이 닫혔습니다`)))
     socket.on('connect', () => {
       socket.write(`${JSON.stringify({
         id: 'orca-usage', authToken: metadata.authToken, method, params,

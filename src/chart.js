@@ -15,11 +15,6 @@ export const RANGES = [
 
 export const colorForSeries = (index) => SERIES_COLORS[index % SERIES_COLORS.length]
 
-// 최댓값 선은 같은 계열의 밝은 색으로 둔다. 다른 색을 주면 별개 창으로 읽힌다.
-const PEAK_COLORS = ['lightgreen', 'lightyellow', 'lightcyan', 'lightmagenta', 'lightblue']
-
-export const peakColorForSeries = (index) => PEAK_COLORS[index % PEAK_COLORS.length]
-
 /**
  * 표본을 시간축에 올린다. 인덱스를 x 로 쓰면 표본이 적을 때 차트가 왼쪽 몇 칸에
  * 몰리고, 조회가 걸러진 구간이 없던 일처럼 압축된다. 시간으로 자리를 잡으면
@@ -193,7 +188,6 @@ export function overviewSeries(historyById, accounts, keys, columns, mode = 'lev
       .map((account) => resample(
         within(pointsFor(historyById[account.id] ?? [], key, mode), range), columns, range))
       .map((entry) => entry.values)
-      .filter((values) => values.length === columns)
     if (perAccount.length === 0) {
       lines.push({ key, stat: 'avg', values: [] })
       latest.push(0)

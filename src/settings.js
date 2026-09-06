@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { RANGES } from './chart.js'
 import { STATE_DIR } from './paths.js'
+import { writeJsonAtomic } from './store.js'
 
 const SETTINGS_PATH = path.join(STATE_DIR, 'settings.json')
 
@@ -11,6 +13,9 @@ const SETTINGS_PATH = path.join(STATE_DIR, 'settings.json')
  * 켤 때마다 같은 손이 든다. 마지막 전환 시각도 함께 남긴다. 이것을 잃으면
  * 앱을 껐다 켠 직후 쿨다운이 풀린 것처럼 보여 방금 옮긴 계정에서 또 옮긴다.
  */
+// 그래프 모드. 화면이 d 로 도는 순서와 같다.
+const GRAPH_MODES = new Set(['level', 'rate', 'schedule'])
+
 const DEFAULTS = {
   graphMode: 'level',
   rangeIndex: 3,
@@ -32,6 +37,12 @@ export function loadSettings() {
         merged[key] = value
       }
     }
+    // 타입만 맞으면 값이 어긋나도 통과했다. rangeIndex 가 목록을 넘으면 첫 렌더에서
+    // 죽고, 모르는 graphMode 는 제목에 undefined 를 찍는다.
+    if (!Number.isInteger(merged.rangeIndex) || merged.rangeIndex < 0 || merged.rangeIndex >= RANGES.length) {
+      merged.rangeIndex = DEFAULTS.rangeIndex
+    }
+    if (!GRAPH_MODES.has(merged.graphMode)) merged.graphMode = DEFAULTS.graphMode
     return merged
   } catch {
     return { ...DEFAULTS }
@@ -48,10 +59,7 @@ export function saveSettings(patch) {
     const next = pending
     pending = null
     try {
-      fs.mkdirSync(STATE_DIR, { recursive: true })
-      const tmp = `${SETTINGS_PATH}.tmp`
-      fs.writeFileSync(tmp, JSON.stringify(next, null, 2))
-      fs.renameSync(tmp, SETTINGS_PATH)
+      writeJsonAtomic(SETTINGS_PATH, next, true)
     } catch { /* 설정을 못 써도 화면은 계속 돈다 */ }
   })
 }

@@ -62,7 +62,9 @@ export async function pollOnce(accounts, {
         delete entry.authFailed
         delete entry.retryUntil
         delete entry.blockedStreak
-        appendHistory(history, account.id, got.usage.windows)
+        // 표본 시각은 Orca 가 받은 시각이다. 지금 시각으로 찍으면 Orca 가 갱신을
+        // 미룬 동안 같은 값이 새 표본처럼 쌓인다. 같은 시각이면 store 가 거른다.
+        appendHistory(history, account.id, got.usage.windows, entry.fetchedAt)
       }
       cache[account.id] = entry
       const row = {
@@ -78,7 +80,7 @@ export async function pollOnce(accounts, {
         retryUntil: null,
         authFailed: Boolean(entry.authFailed),
         note: got?.note ?? null,
-        source: got?.usage ? 'orca' : 'cache',
+        source: got?.usage ? 'orca' : (orca ? 'orca-miss' : 'cache'),
       }
       rows.push(row)
       onAccount(row)
@@ -87,7 +89,9 @@ export async function pollOnce(accounts, {
 
     const fresh = !force && now - (entry.fetchedAt ?? 0) < freshForMs
     const blocked = !force && now < (entry.retryUntil ?? 0)
-    let note = null
+    // Orca 가 이 계정을 못 받았으면 그 사유부터 들고 시작한다. 직접 조회가 되면
+    // 아래에서 덮인다.
+    let note = got?.note ?? null
 
     if (fresh) {
       // 캐시가 아직 신선하다. 호출 예산을 아낀다.
@@ -153,7 +157,7 @@ export async function pollOnce(accounts, {
       retryUntil: entry.retryUntil ?? null,
       authFailed: Boolean(entry.authFailed),
       note,
-      source: 'direct',
+      source: orca ? 'orca-miss' : 'direct',
     }
     rows.push(row)
     onAccount(row)
@@ -181,9 +185,4 @@ export function rowsFromCache(accounts) {
       note: null,
     }
   })
-}
-
-export function nextRefreshDueAt(rows) {
-  const stamps = rows.map((row) => row.refreshedAt).filter(Boolean)
-  return stamps.length ? Math.min(...stamps) + REFRESH_MIN_GAP_MS : null
 }

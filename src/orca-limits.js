@@ -65,7 +65,7 @@ function creditsOf(rateLimits) {
 function entryOf(rateLimits) {
   const ok = rateLimits && rateLimits.status === 'ok' && !rateLimits.error
   return {
-    usage: ok ? { windows: windowsOf(rateLimits), spend: null } : null,
+    usage: ok ? { windows: windowsOf(rateLimits) } : null,
     credits: creditsOf(rateLimits),
     fetchedAt: rateLimits?.updatedAt ?? null,
     note: ok ? null : (rateLimits?.error ?? (rateLimits ? `Orca 조회 ${rateLimits.status}` : null)),

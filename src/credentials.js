@@ -59,14 +59,27 @@ export async function writeCredentials(accountId, payload) {
   }
 }
 
+// 백업은 이 시간이 지나면 지운다. 되쓰기가 깨뜨린 것을 되돌리는 용도라 며칠이면
+// 충분하고, 그 안의 refresh token 은 살아 있는 자격증명이라 오래 둘수록 위험하다.
+const BACKUP_TTL_MS = 7 * 24 * 60 * 60_000
+
 export function backupCredentials(accountId, payload) {
   const dir = path.join(BACKUP_DIR, accountId)
   fs.mkdirSync(dir, { recursive: true })
+  // 되쓰는 것은 claudeAiOauth 뿐이다. 키체인 항목에는 mcpOAuth 처럼 다른 서비스의
+  // 토큰도 함께 들어 있는데, 우리가 손대지 않는 것을 평문으로 남길 이유가 없다.
+  let slice = payload
+  try {
+    const { claudeAiOauth } = JSON.parse(payload)
+    slice = JSON.stringify({ claudeAiOauth })
+  } catch { /* 형식을 모르면 통째로 남긴다. 되돌릴 수 없는 백업이 더 나쁘다 */ }
   const file = path.join(dir, `${Date.now()}.json`)
-  fs.writeFileSync(file, payload, { mode: 0o600, flag: 'wx' })
-  // 계정마다 최근 10벌만 남긴다.
-  const stale = fs.readdirSync(dir).sort().reverse().slice(10)
-  for (const name of stale) fs.rmSync(path.join(dir, name), { force: true })
+  fs.writeFileSync(file, slice, { mode: 0o600, flag: 'wx' })
+  const cutoff = Date.now() - BACKUP_TTL_MS
+  for (const name of fs.readdirSync(dir)) {
+    const stamp = Number(name.replace(/\.json$/, ''))
+    if (Number.isFinite(stamp) && stamp < cutoff) fs.rmSync(path.join(dir, name), { force: true })
+  }
   return file
 }
 

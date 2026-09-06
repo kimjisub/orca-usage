@@ -48,7 +48,7 @@ const ACTIONS = [
   { key: 'q', label: '종료' },
 ]
 
-function Header({ nextPollAt, busy, now, message, autoSwitch, selected, direct }) {
+function Header({ nextPollAt, busy, now, message, autoSwitch, direct }) {
   const right = busy
     ? '조회 중'
     : nextPollAt ? `다음 조회 ${shortSpan(nextPollAt - now)}` : ''
@@ -116,6 +116,7 @@ export function App({ intervalMs, allowRefresh }) {
   // Claude 는 디렉터리를 읽으면 끝이라 첫 프레임에 바로 세운다. Codex 는 Orca 에
   // 물어야 해서 곧이어 합류한다. 기다렸다 함께 그리면 첫 화면이 그만큼 늦다.
   const [accounts, setAccounts] = useState(() => collectAccounts())
+  const [accountsReady, setAccountsReady] = useState(false)
   const [rows, setRows] = useState(() => rowsFromCache(accounts))
   // 어느 계정에 붙어 있는지는 Orca 만 안다. 행마다 박아 두면 일부만 갱신했을 때
   // 옛 표시가 남아 별표가 둘이 된다. 한 곳에 두고 화면이 그때그때 비교한다.
@@ -141,6 +142,7 @@ export function App({ intervalMs, allowRefresh }) {
         })
       })
       .catch(() => { /* Orca 가 꺼져 있으면 Claude 만 보여 준다 */ })
+      .finally(() => { if (alive) setAccountsReady(true) })
     return () => { alive = false }
   }, [])
   const [history, setHistory] = useState(() => loadHistory())
@@ -202,11 +204,16 @@ export function App({ intervalMs, allowRefresh }) {
   const running = useRef(false)
   const timer = useRef(null)
 
+  const messageTimer = useRef(null)
   const notify = useCallback((text) => {
     setMessage(text)
     // 상시로 띄워 두는 화면이라 눈이 늘 여기 있지 않다. 짧으면 놓친다.
-    setTimeout(() => setMessage(null), 8000)
+    // 타이머는 하나만 둔다. 겹치면 앞 것이 새 메시지를 먼저 지우고, 종료 뒤에도
+    // 남은 타이머가 프로세스를 8초까지 붙들었다.
+    clearTimeout(messageTimer.current)
+    messageTimer.current = setTimeout(() => setMessage(null), 8000)
   }, [])
+  useEffect(() => () => clearTimeout(messageTimer.current), [])
 
   /**
    * Orca 가 지금 붙어 있는 계정을 따라간다.
@@ -216,11 +223,16 @@ export function App({ intervalMs, allowRefresh }) {
    */
   useEffect(() => {
     let alive = true
+    let pending = false
     const tick = async () => {
+      if (pending) return
+      pending = true
       try {
         const ids = await activeAccountIds()
         if (alive) setActiveIds(ids)
-      } catch { /* Orca 가 꺼져 있으면 마지막으로 안 값을 그대로 둔다 */ }
+      } catch { /* Orca 가 꺼져 있으면 마지막으로 안 값을 그대로 둔다 */ } finally {
+        pending = false
+      }
     }
     tick()
     const handle = setInterval(tick, ACTIVE_POLL_MS)
@@ -254,7 +266,8 @@ export function App({ intervalMs, allowRefresh }) {
    */
   const maybeSwitch = useCallback(async (fresh) => {
     if (switching.current) return
-    const verdict = decideSwitch(fresh, advise(fresh, loadHistory()), {
+    const claude = fresh.filter((row) => row.provider === 'claude')
+    const verdict = decideSwitch(claude, advise(claude, loadHistory()), {
       activeId: activeIdsRef.current.claude,
       lastSwitchAt: lastSwitchAt.current,
     })
@@ -295,7 +308,8 @@ export function App({ intervalMs, allowRefresh }) {
       setHistory(loadHistory())
       if (allowSwitch.current) await maybeSwitch(fresh)
       else {
-        setDecision(decideSwitch(fresh, advise(fresh, loadHistory()), {
+        const claude = fresh.filter((row) => row.provider === 'claude')
+        setDecision(decideSwitch(claude, advise(claude, loadHistory()), {
           activeId: activeIdsRef.current.claude,
           lastSwitchAt: lastSwitchAt.current,
         }))
@@ -311,10 +325,11 @@ export function App({ intervalMs, allowRefresh }) {
 
   // 주기 조회. 첫 바퀴는 바로 돈다.
   useEffect(() => {
+    if (!accountsReady) return undefined
     poll()
     timer.current = setInterval(() => poll(), intervalMs)
     return () => clearInterval(timer.current)
-  }, [poll, intervalMs])
+  }, [poll, intervalMs, accountsReady])
 
   // 카운트다운을 위해 1초마다 시각만 새로 잡는다.
   useEffect(() => {
@@ -333,6 +348,9 @@ export function App({ intervalMs, allowRefresh }) {
     const row = rows[selected]
     if (!row) return notify('계정을 고른 뒤 눌러 주세요')
     if (!allowRefresh) return notify('갱신이 꺼져 있습니다')
+    if (rows.some((item) => item.source === 'orca')) {
+      return notify('Orca 가 토큰을 관리 중입니다. 재로그인은 Orca 에서 합니다')
+    }
     notify(`${row.email} 토큰 재생성`)
     poll({ force: true, forceRefresh: true, only: [row.id] })
   }, [rows, selected, allowRefresh, notify, poll])
@@ -540,7 +558,6 @@ export function App({ intervalMs, allowRefresh }) {
         now={now}
         message={message}
         autoSwitch={autoSwitch}
-        selected={selected}
         direct={rows.some((row) => row.source === 'direct')}
       />
       <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">
@@ -624,19 +641,19 @@ export function App({ intervalMs, allowRefresh }) {
                     columns={columns - layout.panelWidth - 4}
                     height={layout.graphHeight}
                     mode={graphMode}
-                    showModelWindows={showModelWindows}
+                    showModelWindows={windowsVisible}
                     rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
                   />
                   )
                 : (
                   <OverviewGraph
-                    accounts={rows}
+                    accounts={claudeRows}
                     historyById={history}
                     columns={columns - layout.panelWidth - 4}
                     height={layout.graphHeight}
                     mode={graphMode}
-                    showModelWindows={showModelWindows}
+                    showModelWindows={windowsVisible}
                     rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
                   />

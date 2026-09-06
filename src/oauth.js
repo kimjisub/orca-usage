@@ -191,13 +191,5 @@ export function normalize(data) {
       windows.push({ label: name, pct: limit.percent, resetsAt: limit.resets_at ?? null })
     }
   }
-  const extra = data?.extra_usage
-  const spend = extra?.is_enabled && extra.used_credits != null && extra.monthly_limit != null
-    ? {
-        used: extra.used_credits / 100,
-        limit: extra.monthly_limit / 100,
-        currency: extra.currency ?? 'USD',
-      }
-    : null
-  return { windows, spend }
+  return { windows }
 }

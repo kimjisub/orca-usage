@@ -72,8 +72,13 @@ function planPanels(height, keys) {
 export function OverviewGraph({
   accounts, historyById, columns, height, mode, showModelWindows, rangeMs, rangeLabel,
 }) {
-  // 계정 그래프와 같은 창을 그린다. 5h 와 7d 로 못 박아 두어 Fable 이 빠져 있었다.
-  const all = visibleWindows(accounts[0]?.usage?.windows, showModelWindows).map((w) => w.label)
+  // 계정 그래프와 같은 창을 그린다. 어느 계정에든 있는 창은 다 센다. 첫 계정만
+  // 보면 그 계정이 아직 조회 전일 때 창이 통째로 빈다.
+  const seen = new Set()
+  for (const account of accounts) {
+    for (const window of visibleWindows(account.usage?.windows, showModelWindows)) seen.add(window.label)
+  }
+  const all = [...seen]
   const keys = keysForMode(all.length ? all : ['5h', '7d'], mode)
   const width = Math.max(10, columns - AXIS_WIDTH)
   const plan = planPanels(height - 1, keys)

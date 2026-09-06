@@ -31,8 +31,7 @@ export function TotalBars({ rows, width, now, showModelWindows, selected }) {
       : null,
   }))
   const windows = aggregateWindows(visible, now)
-  // 들여쓰기 1, 라벨 7, 퍼센트 5, 사용량 7 을 뺀 나머지가 막대다. 범위 숫자는
-  // 계정 점이 분포를 그대로 보여주므로 뺐다.
+  // 들여쓰기 1, 라벨 7, 퍼센트 5, 사용량 7 을 뺀 나머지가 막대다.
   const barWidth = Math.max(8, width - 20)
 
   return (

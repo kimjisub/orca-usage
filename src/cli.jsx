@@ -11,8 +11,12 @@ function parseArgs(argv) {
     const arg = argv[index]
     if (arg === '--interval') {
       const seconds = Number(argv[index + 1])
-      if (Number.isFinite(seconds)) options.intervalMs = Math.max(60, seconds) * 1000
-      index += 1
+      // 뒤에 숫자가 없으면 그 자리를 건너뛰지 않는다. --interval --once 에서
+      // --once 가 삼켜지고 있었다.
+      if (Number.isFinite(seconds)) {
+        options.intervalMs = Math.max(60, seconds) * 1000
+        index += 1
+      }
     } else if (arg === '--no-refresh-tokens') {
       options.allowRefresh = false
     } else if (arg === '--json') {

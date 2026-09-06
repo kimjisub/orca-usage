@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import path from 'node:path'
 import { CACHE_PATH, HISTORY_PATH, STATE_DIR } from './paths.js'
 
 const MINUTE = 60_000
@@ -52,12 +53,26 @@ function readJson(file, fallback) {
   }
 }
 
+/**
+ * 임시 파일에 쓰고 이름을 바꾼다. 임시 이름은 프로세스마다 다르다. 대시보드 옆에서
+ * --once 를 돌리면 둘이 같은 임시 파일을 열어 서로의 쓰기를 자르고, 깨진 JSON 이
+ * 제자리에 들어가면 다음 읽기가 빈 객체로 시작해 표본을 전부 잃는다.
+ */
+export function writeJsonAtomic(file, value, pretty = false) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`
+  try {
+    fs.writeFileSync(tmp, pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value))
+    fs.renameSync(tmp, file)
+  } catch (error) {
+    fs.rmSync(tmp, { force: true })
+    throw error
+  }
+}
+
 function writeJson(file, value) {
   try {
-    fs.mkdirSync(STATE_DIR, { recursive: true })
-    const tmp = `${file}.tmp`
-    fs.writeFileSync(tmp, JSON.stringify(value))
-    fs.renameSync(tmp, file)
+    writeJsonAtomic(file, value)
   } catch { /* 캐시를 못 써도 화면은 계속 그린다 */ }
 }
 
@@ -67,9 +82,12 @@ export const loadHistory = () => readJson(HISTORY_PATH, {})
 export const saveHistory = (history) => writeJson(HISTORY_PATH, history)
 
 /** 창별 사용률을 시각과 함께 쌓는다. 아래쪽 그래프가 이걸 읽는다. */
-export function appendHistory(history, accountId, windows) {
+export function appendHistory(history, accountId, windows, at = Date.now()) {
   const series = history[accountId] ?? []
-  const point = { at: Date.now() }
+  // 같은 시각의 표본은 다시 넣지 않는다. Orca 가 갱신을 미룬 동안 같은 값을 매
+  // 폴링 새 표본으로 쌓으면 아무도 관측하지 않은 시간에 평평한 선이 그어진다.
+  if (series.length && series.at(-1).at === at) return history
+  const point = { at }
   for (const window of windows) point[window.label] = window.pct
   series.push(point)
   history[accountId] = compact(series, point.at)

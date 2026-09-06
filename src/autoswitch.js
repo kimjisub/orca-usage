@@ -6,8 +6,15 @@ export const COOLDOWN_MS = 10 * 60_000
 // 곧 막혀서 옮길 때만 요구하는 여유 차이. 79% 에서 78% 로 가는 것은 의미가 없다.
 const MARGIN = 15
 
+// 막힘을 재는 창은 5h 와 7d 다. advice.js 가 배지를 붙일 때 보는 것과 같다.
+// 모델별 창까지 넣으면 화면에 빨간 막대도 배지도 없는데 전환이 일어나고,
+// f 로 그 창을 접어 둔 사람은 무엇 때문인지 알 길이 없다.
+const GATE_WINDOWS = new Set(['5h', '7d'])
+
 const worstOf = (row) => {
-  const used = row?.usage?.windows?.map((window) => window.pct) ?? []
+  const used = (row?.usage?.windows ?? [])
+    .filter((window) => GATE_WINDOWS.has(window.label))
+    .map((window) => window.pct)
   return used.length ? Math.max(...used) : null
 }
 
