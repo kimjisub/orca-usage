@@ -19,7 +19,9 @@ export function Hit({ id, onMeasure, children }) {
     if (hasMeasured) onMeasure(id, top, height)
   }, [id, top, height, hasMeasured, onMeasure])
 
-  return <Box ref={ref} flexDirection="column">{children}</Box>
+  // 세로가 모자랄 때 ink 는 자식을 눌러 줄을 지운다. 계정 이름 줄이 먼저
+  // 사라져 막대만 남으므로, 누르지 말고 아래가 잘리게 둔다.
+  return <Box ref={ref} flexDirection="column" flexShrink={0}>{children}</Box>
 }
 
 /** 컨테이너의 절대 위치를 알린다. 자식들의 top 은 여기에 얹힌다. */
