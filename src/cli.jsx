@@ -34,6 +34,11 @@ const HELP = `orca-usage - Orca 가 관리하는 Claude 와 Codex 계정들의 �
   orca-usage --json              JSON 으로 출력합니다 (--once 를 함께 쓰세요)
   orca-usage --no-refresh-tokens 만료된 토큰을 갱신하지 않습니다
 
+사용량 출처:
+  Orca 가 계정별로 이미 조회해 둔 값을 받습니다. 우리가 따로 치면 같은 예산을
+  나눠 써 활성 계정이 429 에 걸립니다. Orca 가 꺼져 있으면 키체인의 자격증명으로
+  직접 조회하고, 머리글에 "Orca 연결 안 됨, 직접 조회" 가 뜹니다.
+
 화면 안에서:
   r  전체 재조회         t  선택한 계정의 토큰 재생성
   d  사용량/소비 전환    f  Fable 창 표시/숨김

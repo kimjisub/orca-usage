@@ -1,7 +1,6 @@
 import { CredentialError } from './credentials.js'
 import { REFRESH_MIN_GAP_MS, ensureToken, fetchUsage, normalize } from './oauth.js'
-import { fetchCodex } from './codex.js'
-import { activeAccountIds } from './orca-rpc.js'
+import { fetchOrcaLimits } from './orca-limits.js'
 import { appendHistory, loadCache, loadHistory, saveCache, saveHistory } from './store.js'
 
 // 429 는 Retry-After: 0 으로 오는 일이 잦다. 그대로 믿으면 쉬지 않고 다시 때린다.
@@ -31,51 +30,58 @@ export async function pollOnce(accounts, {
   const targets = only ? accounts.filter((a) => only.includes(a.id)) : accounts
   const rows = []
 
-  // 활성 계정은 Orca 에 직접 묻는다. ~/.claude.json 은 Claude Code 가 로그인할
-  // 때 쓰는 파일이라, Orca 에서 계정을 바꿔도 그 파일은 그대로다.
-  let activeIds = {}
-  try {
-    activeIds = await activeAccountIds()
-  } catch { /* 못 받으면 앞서 파일에서 읽은 값을 그대로 쓴다 */ }
-
-  // Codex 사용량은 Orca 가 계정별로 들고 있어 한 번의 조회로 전부 받는다.
-  // 계정마다 따로 부르면 같은 응답을 사람 수만큼 받게 된다.
-  let codexById = new Map()
-  if (targets.some((account) => account.provider === 'codex')) {
+  // 사용량은 Orca 에서 먼저 받는다. Orca 는 우리와 같은 엔드포인트를 같은
+  // 자격증명으로 치므로, 둘이 따로 치면 계정당 5분 5회 예산을 활성 계정에서
+  // 넘겨 429 백오프에 걸린다. 한 번의 조회로 전 계정이 오고 활성 계정도 함께
+  // 온다. Orca 가 꺼져 있거나 어느 계정의 조회가 실패했으면 그 계정만 아래의
+  // 직접 조회로 간다. 토큰을 다시 만드는 t 키는 처음부터 직접 경로다. 그 키의
+  // 목적이 우리 쪽 자격증명을 손보는 것이라서다.
+  let orca = null
+  if (!forceRefresh) {
     try {
-      const codex = await fetchCodex({ refreshUsage: force })
-      codexById = new Map(codex.accounts.map((account) => [account.id, account]))
-    } catch { /* 못 받으면 캐시에 있는 값을 그대로 보여 준다 */ }
+      orca = await fetchOrcaLimits({ refreshUsage: true })
+    } catch { /* Orca 가 안 떠 있다. 아래에서 계정마다 직접 조회한다 */ }
   }
+  const activeIds = orca
+    ? { claude: orca.claude.activeId, codex: orca.codex.activeId }
+    : {}
 
   for (const [position, account] of targets.entries()) {
     const entry = { ...(cache[account.id] ?? {}) }
     const now = Date.now()
 
-    // Codex 는 토큰도 백오프도 우리 몫이 아니다. Orca 가 준 값을 그대로 옮긴다.
-    if (account.provider === 'codex') {
-      const got = codexById.get(account.id)
+    const got = orca?.[account.provider]?.byId.get(account.id) ?? null
+    // Codex 는 직접 조회 경로가 없다. Orca 값이 없으면 캐시를 그대로 보여 준다.
+    // Claude 는 Orca 값이 있으면 옮겨 적고, 없으면 아래에서 직접 친다.
+    if (account.provider === 'codex' || got?.usage) {
       if (got?.usage) {
         entry.usage = got.usage
         entry.fetchedAt = got.fetchedAt ?? Date.now()
-        entry.credits = got.credits ?? null
+        if (account.provider === 'codex') entry.credits = got.credits ?? null
+        // Orca 가 받아 냈으면 그 계정의 토큰은 살아 있다.
+        delete entry.authFailed
+        delete entry.retryUntil
+        delete entry.blockedStreak
         appendHistory(history, account.id, got.usage.windows)
       }
       cache[account.id] = entry
-      const codexRow = {
+      const row = {
         ...account,
-        active: account.id === (activeIds.codex ?? null),
+        active: activeIds[account.provider]
+          ? account.id === activeIds[account.provider]
+          : Boolean(account.active),
         usage: entry.usage ?? null,
         fetchedAt: entry.fetchedAt ?? null,
         credits: entry.credits ?? null,
-        refreshedAt: null,
-        expiresAt: null,
+        refreshedAt: entry.refreshedAt ?? null,
+        expiresAt: entry.expiresAt ?? null,
         retryUntil: null,
-        authFailed: false,
+        authFailed: Boolean(entry.authFailed),
         note: got?.note ?? null,
+        source: got?.usage ? 'orca' : 'cache',
       }
-      rows.push(codexRow)
-      onAccount(codexRow)
+      rows.push(row)
+      onAccount(row)
       continue
     }
 
@@ -139,7 +145,7 @@ export async function pollOnce(accounts, {
     cache[account.id] = entry
     const row = {
       ...account,
-      active: activeIds.claude ? account.id === activeIds.claude : account.active,
+      active: activeIds.claude ? account.id === activeIds.claude : Boolean(account.active),
       usage: entry.usage ?? null,
       fetchedAt: entry.fetchedAt ?? null,
       refreshedAt: entry.refreshedAt ?? null,
@@ -147,6 +153,7 @@ export async function pollOnce(accounts, {
       retryUntil: entry.retryUntil ?? null,
       authFailed: Boolean(entry.authFailed),
       note,
+      source: 'direct',
     }
     rows.push(row)
     onAccount(row)

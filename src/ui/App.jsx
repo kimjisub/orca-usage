@@ -5,7 +5,7 @@ import { advise } from '../advice.js'
 import { SWITCH_AT, decideSwitch } from '../autoswitch.js'
 import { RANGES } from '../chart.js'
 import { activeAccountIds, selectClaudeAccount } from '../orca-rpc.js'
-import { selectCodexAccount } from '../codex.js'
+import { selectCodexAccount } from '../orca-limits.js'
 import { loadSettings, saveSettings } from '../settings.js'
 import { shortSpan, visibleWindows } from '../format.js'
 import { useFullscreen } from '../fullscreen.js'
@@ -45,7 +45,7 @@ const ACTIONS = [
   { key: 'q', label: '종료' },
 ]
 
-function Header({ nextPollAt, busy, now, message, autoSwitch, selected }) {
+function Header({ nextPollAt, busy, now, message, autoSwitch, selected, direct }) {
   const right = busy
     ? '조회 중'
     : nextPollAt ? `다음 조회 ${shortSpan(nextPollAt - now)}` : ''
@@ -58,6 +58,8 @@ function Header({ nextPollAt, busy, now, message, autoSwitch, selected }) {
           {message ? <Text color="yellow">{`   ${message}`}</Text> : null}
         </Text>
         <Text wrap="truncate">
+          {/* Orca 없이 직접 치는 중이면 알린다. 값이 낡거나 백오프에 걸릴 수 있어서다. */}
+          {direct ? <Text color="yellow">{'Orca 연결 안 됨, 직접 조회  '}</Text> : null}
           {autoSwitch ? <Text color="green" bold>{'자동 전환  '}</Text> : null}
           <Text color="gray">{right}</Text>
         </Text>
@@ -494,6 +496,7 @@ export function App({ intervalMs, allowRefresh }) {
         message={message}
         autoSwitch={autoSwitch}
         selected={selected}
+        direct={rows.some((row) => row.source === 'direct')}
       />
       <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">
         <Box

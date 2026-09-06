@@ -95,9 +95,11 @@ Terminals that are already open keep running on the old account. The new one app
 
 ## How it works
 
-Orca stores each Claude account under `~/Library/Application Support/orca/claude-accounts/`, with its OAuth credentials in the login keychain. orca-usage reads those credentials, refreshes the access token when it has expired, and calls Anthropic's usage endpoint for each account.
+Usage comes from Orca first. The runtime already polls every account it manages, Claude and Codex alike, and hands the numbers back in one call over its local Unix socket. orca-usage asks for a refresh on each poll and copies the result. It does not touch a credential on this path.
 
-Codex works the other way round. Orca already holds a per-account rate limit for it, so orca-usage asks the runtime for those numbers in one call instead of touching Codex credentials at all. Nothing there can break a token.
+The reason is the rate limit on the usage endpoint itself: five calls per account per five minutes. Orca reaches it with the same keychain credential orca-usage would use, so two pollers share one budget and the active account, which Orca refreshes most often, is the one that runs out and gets backed off.
+
+If Orca is not running, orca-usage falls back to reading the OAuth credentials under `~/Library/Application Support/orca/claude-accounts/` from the login keychain, refreshing the access token when it has expired, and calling the usage endpoint directly. The header says so while that is the case. Codex has no fallback; its last known values stay on screen.
 
 The account Orca is currently attached to comes from the Orca runtime over its local Unix socket, not from `~/.claude.json`. That file records where Claude Code last logged in, which drifts from Orca's choice as soon as you switch accounts in the app.
 
