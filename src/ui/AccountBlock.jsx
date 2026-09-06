@@ -48,7 +48,8 @@ export function AccountBlock({
   const windows = visibleWindows(row.usage?.windows, showModelWindows)
   return (
     <>
-      <Text>
+      {/* 좁은 화면에서 접히면 한 계정이 두 줄을 먹어 아래가 통째로 밀린다. */}
+      <Text wrap="truncate">
         <Text color="cyan" bold>{selected ? '>' : ' '}</Text>
         {/* 번호 색이 전체 패널의 선 색과 같다. 어느 선이 어느 계정인지 잇는 유일한 단서다. */}
         <Text color={colorForSeries(row.index - 1)} bold>{String(row.index).padStart(2)}</Text>

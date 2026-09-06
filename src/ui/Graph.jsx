@@ -139,7 +139,13 @@ function Pick({ label, entry, detail, tone = 'white' }) {
   )
 }
 
-export function Advice({ tip, autoSwitch, decision }) {
+/**
+ * 추천 요약. 자리가 좁으면 지금 붙을 곳과 자동 전환 상태만 남긴다.
+ *
+ * 계정 한 줄이 「큰 작업」이나 「아껴둘 것」보다 급하다. 목록이 잘려 계정이
+ * 안 보이면 추천에 적힌 번호가 화면 어디에도 없게 된다.
+ */
+export function Advice({ tip, autoSwitch, decision, compact = false }) {
   return (
     <>
       {tip?.allBlocked
@@ -154,16 +160,22 @@ export function Advice({ tip, autoSwitch, decision }) {
           </Text>
           )
         : <Pick label="지금 쓰기" entry={tip?.use} detail={tip?.useReason ?? ''} />}
-      <Pick
-        label="큰 작업"
-        entry={tip?.heavy}
-        detail={tip?.heavy
-          ? `주간 ${Math.round(tip.heavy.reserve)}%  이 속도로 ${hours(tip.heavy.runwayHours)}`
-          : ''}
-      />
-      {tip?.avoid
-        ? <Pick label="아껴둘 것" entry={tip.avoid} detail={`주간 ${Math.round(tip.avoid.weeklyPct)}% 씀`} tone="gray" />
-        : <Text> </Text>}
+      {compact
+        ? null
+        : (
+          <>
+            <Pick
+              label="큰 작업"
+              entry={tip?.heavy}
+              detail={tip?.heavy
+                ? `주간 ${Math.round(tip.heavy.reserve)}%  이 속도로 ${hours(tip.heavy.runwayHours)}`
+                : ''}
+            />
+            {tip?.avoid
+              ? <Pick label="아껴둘 것" entry={tip.avoid} detail={`주간 ${Math.round(tip.avoid.weeklyPct)}% 씀`} tone="gray" />
+              : <Text> </Text>}
+          </>
+          )}
       <AutoSwitchLine autoSwitch={autoSwitch} decision={decision} />
     </>
   )

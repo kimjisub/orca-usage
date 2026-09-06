@@ -7,7 +7,7 @@ import { RANGES } from '../chart.js'
 import { activeAccountIds, selectClaudeAccount } from '../orca-rpc.js'
 import { selectCodexAccount } from '../codex.js'
 import { loadSettings, saveSettings } from '../settings.js'
-import { shortSpan } from '../format.js'
+import { shortSpan, visibleWindows } from '../format.js'
 import { useFullscreen } from '../fullscreen.js'
 import { isMouseSequence, parseMouseClick, useMouseReporting } from '../mouse.js'
 import { pollOnce, rowsFromCache } from '../poller.js'
@@ -23,6 +23,15 @@ const HEADER_ROWS = 2
 const ACTIVE_POLL_MS = 5000
 // 섹션 머리글. 계정 수와 창 구조가 provider 마다 달라 목록을 갈라 세운다.
 const PROVIDER_LABEL = { claude: 'Claude', codex: 'Codex' }
+// 화면이 이보다 좁으면 그래프를 접고 목록이 폭을 다 쓴다. 왼쪽 패널이 56 칸,
+// 눈금과 선이 형태를 갖추려면 오른쪽이 36 칸은 되어야 한다.
+const MIN_GRAPH_COLUMNS = 92
+// 이보다 낮으면 모델별 창을 접는다. 계정마다 한 줄씩 벌어 계정 수가 더 들어간다.
+const TIGHT_ROWS = 30
+// 이보다 낮으면 범례를 접는다. 계정 한 줄이 범례보다 급하다.
+const MIN_LEGEND_ROWS = 26
+// 이보다 낮으면 추천도 첫 줄만 남긴다. 같은 이유다.
+const MIN_ADVICE_ROWS = 30
 // 라벨을 짧게 둔다. 아래 한 줄에 범례까지 같이 실려서 길면 통째로 밀린다.
 const ACTIONS = [
   { key: 'r', label: '조회' },
@@ -42,12 +51,13 @@ function Header({ nextPollAt, busy, now, message, autoSwitch, selected }) {
     : nextPollAt ? `다음 조회 ${shortSpan(nextPollAt - now)}` : ''
   return (
     <>
-      <Box justifyContent="space-between" paddingX={1}>
-        <Text>
+      {/* 좁은 화면에서 두 덩이가 맞물려 접히면 머리글이 두 줄을 먹는다. */}
+      <Box justifyContent="space-between" paddingX={1} flexShrink={0}>
+        <Text wrap="truncate">
           <Text color="white" bold>{'watching all accounts'}</Text>
           {message ? <Text color="yellow">{`   ${message}`}</Text> : null}
         </Text>
-        <Text>
+        <Text wrap="truncate">
           {autoSwitch ? <Text color="green" bold>{'자동 전환  '}</Text> : null}
           <Text color="gray">{right}</Text>
         </Text>
@@ -152,7 +162,14 @@ export function App({ intervalMs, allowRefresh }) {
 
   // 왼쪽 폭은 내용이 정한다. 비율로 잡으면 좁은 터미널에서 이름이 잘리고 넓은
   // 터미널에서는 빈 자리가 남는다. 오른쪽 그래프가 나머지를 다 쓴다.
-  const barWidth = 26
+  // 막대 줄은 들여쓰기 5, 창 이름 7, 막대, 퍼센트 5, 남은 시간 9 와 상자의 테두리
+  // 둘에 패딩 둘로 이뤄진다. 폭이 모자라면 막대부터 줄여야 줄이 안 접힌다.
+  const barWidth = Math.max(8, Math.min(26, columns - 30))
+  // 설정은 건드리지 않는다. 창을 넓히면 접었던 것이 그대로 돌아와야 한다.
+  const graphVisible = showGraph && columns >= MIN_GRAPH_COLUMNS
+  const windowsVisible = showModelWindows && screenRows >= TIGHT_ROWS
+  const legendVisible = screenRows >= MIN_LEGEND_ROWS
+  const adviceCompact = screenRows < MIN_ADVICE_ROWS
   const panelWidth = useMemo(() => {
     const labelOf = (row) => (row.label ? row.label.length + 4 : 0)
     // 머리글: 들여쓰기와 번호, 별표 자리, 이름, 요금제, 배지
@@ -161,8 +178,9 @@ export function App({ intervalMs, allowRefresh }) {
     // 막대 줄: 들여쓰기, 창 이름, 막대, 퍼센트, 남은 시간
     const bar = 5 + 7 + barWidth + 5 + 9
     // 좌우 패딩 둘과 테두리 둘
+    if (!graphVisible) return columns
     return Math.min(columns - 24, Math.max(header, bar) + 4)
-  }, [rows, columns])
+  }, [rows, columns, graphVisible])
 
   const running = useRef(false)
   const timer = useRef(null)
@@ -395,6 +413,9 @@ export function App({ intervalMs, allowRefresh }) {
     panelWidth,
     // 그래프는 본문 높이에서 상자 테두리 두 줄만 뺀 만큼을 쓴다.
     graphHeight: Math.max(6, screenRows - HEADER_ROWS - 1 - 2),
+    // 상자 높이도 화면에 맞춘다. 내용만큼 커지게 두면 계정이 많을 때 상자가
+    // 화면을 넘어 아래 테두리가 잘린 채로 남는다.
+    panelHeight: Math.max(6, screenRows - HEADER_ROWS - 1),
   }), [panelWidth, screenRows])
 
   // 각 항목이 자기 위치를 알려 온다. 행을 손으로 세지 않으므로 창을 접거나
@@ -402,11 +423,45 @@ export function App({ intervalMs, allowRefresh }) {
   const hits = useRef(new Map())
   const columnTop = useRef(0)
   const onHit = useCallback((id, top, height) => {
-    hits.current.set(id, { top, height })
+    if (top == null) hits.current.delete(id)
+    else hits.current.set(id, { top, height })
   }, [])
   const onColumnTop = useCallback((top) => {
     columnTop.current = top
   }, [])
+
+  /**
+   * 세로가 모자랄 때 그릴 구간.
+   *
+   * 넘치는 만큼은 어차피 잘린다. 고른 계정이 그 잘린 자리에 있으면 무엇을 보고
+   * 있는지도, 왜 그래프가 그 계정인지도 알 수 없으므로 그 계정이 들어오도록
+   * 시작을 민다. 아래를 먼저 채우고 남으면 위로 넓힌다.
+   */
+  const view = useMemo(() => {
+    const heights = rows.map((row, index) =>
+      blockHeight(row, windowsVisible) + (row.provider !== rows[index - 1]?.provider ? 1 : 0))
+    const totalRows = (visibleWindows(rows[0]?.usage?.windows, windowsVisible).length || 1) + 2
+    // 상자 테두리 둘, 전체 막대, 추천 넉 줄, 그리고 범례가 있으면 두 줄.
+    const budget = layout.panelHeight - 2 - totalRows
+      - (adviceCompact ? 2 : 4) - (legendVisible ? 2 : 0)
+    const total = heights.reduce((sum, height) => sum + height, 0)
+    if (total <= budget || rows.length === 0) return { start: 0, end: rows.length }
+
+    const target = Math.min(rows.length - 1, Math.max(0, selected))
+    let start = target
+    let end = target + 1
+    let used = heights[target]
+    for (;;) {
+      if (end < rows.length && used + heights[end] <= budget) {
+        used += heights[end]
+        end += 1
+      } else if (start > 0 && used + heights[start - 1] <= budget) {
+        start -= 1
+        used += heights[start]
+      } else break
+    }
+    return { start, end }
+  }, [rows, selected, windowsVisible, legendVisible, adviceCompact, layout.panelHeight])
 
   const onClick = useCallback((row, column) => {
     if (column > layout.panelWidth) return
@@ -443,24 +498,32 @@ export function App({ intervalMs, allowRefresh }) {
       <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">
         <Box
           width={layout.panelWidth}
+          height={layout.panelHeight}
           flexDirection="column"
           borderStyle="round"
           borderColor="gray"
           paddingX={1}
+          overflow="hidden"
         >
           <Hit id={-1} onMeasure={onHit}>
             <TotalBars
             rows={claudeRows}
             width={layout.panelWidth - 4}
             now={now}
-            showModelWindows={showModelWindows}
+            showModelWindows={windowsVisible}
               selected={selected === -1}
             />
           </Hit>
-          {rows.map((row, index) => (
+          {rows.slice(view.start, view.end).map((row, offset) => {
+            const index = view.start + offset
+            return (
             <React.Fragment key={row.id}>
-              {row.provider !== rows[index - 1]?.provider
-                ? <Text color="gray">{PROVIDER_LABEL[row.provider] ?? row.provider}</Text>
+              {index === view.start || row.provider !== rows[index - 1]?.provider
+                ? (
+                  <Box flexShrink={0}>
+                    <Text color="gray">{PROVIDER_LABEL[row.provider] ?? row.provider}</Text>
+                  </Box>
+                  )
                 : null}
             <Hit id={index} onMeasure={onHit}>
               <AccountBlock
@@ -469,29 +532,33 @@ export function App({ intervalMs, allowRefresh }) {
                 selected={index === selected}
                 now={now}
                 barWidth={barWidth}
-                showModelWindows={showModelWindows}
+                showModelWindows={windowsVisible}
                 staleAfterMs={intervalMs * 4}
                 badge={tip?.badges?.[row.id]}
               />
             </Hit>
             </React.Fragment>
-          ))}
+            )
+          })}
           <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
-            <Advice tip={tip} autoSwitch={autoSwitch} decision={decision} />
-            <Text> </Text>
-            <BadgeLegend />
+            <Advice tip={tip} autoSwitch={autoSwitch} decision={decision} compact={adviceCompact} />
+            {legendVisible
+              ? <><Text> </Text><BadgeLegend /></>
+              : null}
           </Box>
         </Box>
 
+        {graphVisible ? (
         <Box
           flexGrow={1}
+          height={layout.panelHeight}
           flexDirection="column"
           borderStyle="round"
           borderColor="cyan"
           paddingX={1}
+          overflow="hidden"
         >
-          {showGraph
-            ? (current
+          {(current
                 ? (
                   <Graph
                     row={current}
@@ -499,7 +566,7 @@ export function App({ intervalMs, allowRefresh }) {
                     columns={columns - layout.panelWidth - 4}
                     height={layout.graphHeight}
                     mode={graphMode}
-                    showModelWindows={showModelWindows}
+                    showModelWindows={windowsVisible}
                     rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
                   />
@@ -511,13 +578,13 @@ export function App({ intervalMs, allowRefresh }) {
                     columns={columns - layout.panelWidth - 4}
                     height={layout.graphHeight}
                     mode={graphMode}
-                    showModelWindows={showModelWindows}
+                    showModelWindows={windowsVisible}
                     rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
                   />
-                  ))
-            : null}
+                  ))}
         </Box>
+        ) : null}
       </HitRoot>
       <ActionBar />
     </Box>

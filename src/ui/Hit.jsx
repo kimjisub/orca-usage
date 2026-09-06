@@ -16,7 +16,11 @@ export function Hit({ id, onMeasure, children }) {
   const { top, height, hasMeasured } = metrics
 
   useEffect(() => {
-    if (hasMeasured) onMeasure(id, top, height)
+    if (!hasMeasured) return undefined
+    onMeasure(id, top, height)
+    // 목록이 잘려 이 덩어리가 화면에서 빠지면 좌표도 함께 걷는다. 남겨 두면
+    // 그 자리를 눌렀을 때 이제는 안 보이는 계정이 골라진다.
+    return () => onMeasure(id, null, null)
   }, [id, top, height, hasMeasured, onMeasure])
 
   // 세로가 모자랄 때 ink 는 자식을 눌러 줄을 지운다. 계정 이름 줄이 먼저
