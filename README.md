@@ -23,6 +23,7 @@ A terminal dashboard for the Claude and Codex accounts managed by [Orca](https:/
 - **Covers both providers.** Claude and Codex accounts are listed in separate sections, because they do not share a window layout: Claude reports a 5-hour, a 7-day and per-model window, Codex reports a weekly one plus rate-limit reset credits.
 - **Tracks the windows that matter.** The 5-hour and 7-day limits, plus per-model windows when you want them.
 - **Plots history.** Usage level over time, or consumption rate in percentage points per hour. Ranges from 3 hours to a month.
+- **Shows the week ahead.** A third graph mode draws the next seven days one hour per cell, coloured by how much weekly headroom the accounts together will have then. Resets are exact; the stretch between them is projected from the observed burn rate. Today's row is split per account so you can see who is blocked and when it clears. A `!` marks hours where an account will reset with more than 15% left unspent.
 - **Leaves gaps where there is no data.** Sampling gaps are drawn as gaps, not as a flat line carried forward from the last reading.
 - **Suggests where to go next.** Badges mark the account that is best to use now, the one whose weekly quota will expire unused, and the one to save.
 - **Switches accounts.** Manually with Enter, or automatically when the account you are on gets close to its limit.
@@ -68,7 +69,7 @@ orca-usage --no-refresh-tokens never refresh an expired token
 | Key | Action | Key | Action |
 | --- | --- | --- | --- |
 | `r` | Refresh all | `t` | Reissue the selected account's token |
-| `d` | Toggle usage / consumption rate | `f` | Show or hide per-model windows |
+| `d` | Cycle usage / consumption rate / week ahead | `f` | Show or hide per-model windows |
 | `w` | Cycle the range (3h to 1M) | `a` | Toggle automatic switching |
 | `g` | Collapse or expand the graph | `q` | Quit |
 | `Enter` | Point Orca at the selected account | `1`-`9` | Jump to an account |

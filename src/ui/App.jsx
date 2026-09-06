@@ -16,6 +16,7 @@ import { ACTIVE_MARK, AccountBlock, BADGES, blockHeight } from './AccountBlock.j
 import { TotalBars, totalBarsHeight } from './TotalBars.jsx'
 import { Advice, Graph, OverviewGraph, adviceHeight } from './Graph.jsx'
 import { Hit, HitRoot } from './Hit.jsx'
+import { Schedule } from './Schedule.jsx'
 
 const HEADER_ROWS = 2
 // 활성 계정만 따로 확인하는 주기. 사용량 조회와 달리 소켓 한 번이라 가볍고,
@@ -395,8 +396,9 @@ export function App({ intervalMs, allowRefresh }) {
     }
     else if (key === 'd') {
       setGraphMode((value) => {
-        const next = value === 'level' ? 'rate' : 'level'
-        notify(next === 'rate' ? '그래프: 시간당 소비' : '그래프: 사용량')
+        // 사용량, 소비, 일정 순으로 돈다. 일정은 계정을 골라도 전체를 본다.
+        const next = value === 'level' ? 'rate' : value === 'rate' ? 'schedule' : 'level'
+        notify({ rate: '그래프: 시간당 소비', schedule: '그래프: 일주일 일정', level: '그래프: 사용량' }[next])
         return next
       })
     }
@@ -604,7 +606,17 @@ export function App({ intervalMs, allowRefresh }) {
           paddingX={1}
           overflow="hidden"
         >
-          {(current
+          {graphMode === 'schedule'
+            ? (
+              <Schedule
+                rows={claudeRows}
+                historyById={history}
+                now={now}
+                height={layout.graphHeight}
+                columns={columns - layout.panelWidth - 4}
+              />
+              )
+            : (current
                 ? (
                   <Graph
                     row={current}
