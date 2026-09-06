@@ -76,7 +76,7 @@ export function OverviewGraph({
   const all = visibleWindows(accounts[0]?.usage?.windows, showModelWindows).map((w) => w.label)
   const keys = keysForMode(all.length ? all : ['5h', '7d'], mode)
   const width = Math.max(10, columns - AXIS_WIDTH)
-  const plan = planPanels(Math.max(6, height - 1), keys)
+  const plan = planPanels(height - 1, keys)
 
   const { lines, min, max, from, to } =
     overviewSeries(historyById, accounts, keys, width, mode, rangeMs)
@@ -142,9 +142,12 @@ function Pick({ label, entry, detail, tone = 'white' }) {
 /**
  * 추천 요약. 자리가 좁으면 지금 붙을 곳과 자동 전환 상태만 남긴다.
  *
- * 계정 한 줄이 「큰 작업」이나 「아껴둘 것」보다 급하다. 목록이 잘려 계정이
+ * 계정 한 줄이 '큰 작업' 이나 '아껴둘 것' 보다 급하다. 목록이 잘려 계정이
  * 안 보이면 추천에 적힌 번호가 화면 어디에도 없게 된다.
  */
+/** Advice 가 차지하는 줄 수. 목록 예산을 잴 때 렌더와 같은 값을 쓴다. */
+export const adviceHeight = (compact) => (compact ? 2 : 4)
+
 export function Advice({ tip, autoSwitch, decision, compact = false }) {
   return (
     <>

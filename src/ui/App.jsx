@@ -13,8 +13,8 @@ import { isMouseSequence, parseMouseClick, useMouseReporting } from '../mouse.js
 import { pollOnce, rowsFromCache } from '../poller.js'
 import { loadHistory } from '../store.js'
 import { ACTIVE_MARK, AccountBlock, BADGES, blockHeight } from './AccountBlock.jsx'
-import { TotalBars } from './TotalBars.jsx'
-import { Advice, Graph, OverviewGraph } from './Graph.jsx'
+import { TotalBars, totalBarsHeight } from './TotalBars.jsx'
+import { Advice, Graph, OverviewGraph, adviceHeight } from './Graph.jsx'
 import { Hit, HitRoot } from './Hit.jsx'
 
 const HEADER_ROWS = 2
@@ -23,15 +23,17 @@ const HEADER_ROWS = 2
 const ACTIVE_POLL_MS = 5000
 // 섹션 머리글. 계정 수와 창 구조가 provider 마다 달라 목록을 갈라 세운다.
 const PROVIDER_LABEL = { claude: 'Claude', codex: 'Codex' }
-// 화면이 이보다 좁으면 그래프를 접고 목록이 폭을 다 쓴다. 왼쪽 패널이 56 칸,
-// 눈금과 선이 형태를 갖추려면 오른쪽이 36 칸은 되어야 한다.
-const MIN_GRAPH_COLUMNS = 92
-// 이보다 낮으면 모델별 창을 접는다. 계정마다 한 줄씩 벌어 계정 수가 더 들어간다.
+// 그래프 상자 안쪽이 이보다 좁으면 그래프를 접고 목록이 폭을 다 쓴다. 눈금
+// 여섯 칸을 빼고 서른 칸은 있어야 선이 형태를 갖춘다. 화면 폭이 아니라 목록이
+// 쓰고 남는 칸으로 재는 이유는, 목록 폭이 긴 이메일을 따라 늘기 때문이다.
+const MIN_GRAPH_WIDTH = 36
+// 범례부터 접는다. 범례는 고정 문구라 추천의 한 줄보다 덜 급하다.
+const MIN_LEGEND_ROWS = 34
+// 이보다 낮으면 모델별 창을 접고 추천도 첫 줄만 남긴다. 계정마다 한 줄씩 벌어
+// 계정 수가 더 들어간다.
 const TIGHT_ROWS = 30
-// 이보다 낮으면 범례를 접는다. 계정 한 줄이 범례보다 급하다.
-const MIN_LEGEND_ROWS = 26
-// 이보다 낮으면 추천도 첫 줄만 남긴다. 같은 이유다.
-const MIN_ADVICE_ROWS = 30
+// 빈 줄 하나와 범례 한 줄.
+const LEGEND_ROWS = 2
 // 라벨을 짧게 둔다. 아래 한 줄에 범례까지 같이 실려서 길면 통째로 밀린다.
 const ACTIONS = [
   { key: 'r', label: '조회' },
@@ -167,12 +169,12 @@ export function App({ intervalMs, allowRefresh }) {
   // 막대 줄은 들여쓰기 5, 창 이름 7, 막대, 퍼센트 5, 남은 시간 9 와 상자의 테두리
   // 둘에 패딩 둘로 이뤄진다. 폭이 모자라면 막대부터 줄여야 줄이 안 접힌다.
   const barWidth = Math.max(8, Math.min(26, columns - 30))
-  // 설정은 건드리지 않는다. 창을 넓히면 접었던 것이 그대로 돌아와야 한다.
-  const graphVisible = showGraph && columns >= MIN_GRAPH_COLUMNS
-  const windowsVisible = showModelWindows && screenRows >= TIGHT_ROWS
-  const legendVisible = screenRows >= MIN_LEGEND_ROWS
-  const adviceCompact = screenRows < MIN_ADVICE_ROWS
-  const panelWidth = useMemo(() => {
+  // 추천과 전체 합계는 Claude 안에서만 선다. Codex 는 창이 7d 하나뿐이라
+  // 같은 자로 재면 5h 가 빈 것처럼 읽힌다.
+  const claudeRows = useMemo(() => rows.filter((row) => row.provider === 'claude'), [rows])
+
+  // 목록이 그래프와 나란히 설 때 필요한 폭. 내용이 정한다.
+  const listWidth = useMemo(() => {
     const labelOf = (row) => (row.label ? row.label.length + 4 : 0)
     // 머리글: 들여쓰기와 번호, 별표 자리, 이름, 요금제, 배지
     const header = 5 + 2 + Math.max(0, ...rows.map((row) => row.email.length))
@@ -180,9 +182,21 @@ export function App({ intervalMs, allowRefresh }) {
     // 막대 줄: 들여쓰기, 창 이름, 막대, 퍼센트, 남은 시간
     const bar = 5 + 7 + barWidth + 5 + 9
     // 좌우 패딩 둘과 테두리 둘
-    if (!graphVisible) return columns
     return Math.min(columns - 24, Math.max(header, bar) + 4)
-  }, [rows, columns, graphVisible])
+  }, [rows, columns, barWidth])
+
+  // 설정은 건드리지 않는다. 창을 넓히면 접었던 것이 그대로 돌아와야 한다.
+  // 그래프 상자의 테두리와 패딩 넷을 뺀 나머지가 그래프에 돌아간다.
+  const graphFits = columns - listWidth - 4 >= MIN_GRAPH_WIDTH
+  const windowsFit = screenRows >= TIGHT_ROWS
+  const graphVisible = showGraph && graphFits
+  const windowsVisible = showModelWindows && windowsFit
+  const legendVisible = screenRows >= MIN_LEGEND_ROWS
+  const adviceCompact = screenRows < TIGHT_ROWS
+  const panelWidth = graphVisible ? listWidth : columns
+  // 키 처리기가 읽는다. 의존성에 넣으면 창 크기가 바뀔 때마다 처리기가 다시 만들어진다.
+  const fit = useRef({ graph: true, windows: true })
+  fit.current = { graph: graphFits, windows: windowsFit }
 
   const running = useRef(false)
   const timer = useRef(null)
@@ -351,7 +365,12 @@ export function App({ intervalMs, allowRefresh }) {
   const runAction = useCallback((key) => {
     if (key === 'r') doRefresh()
     else if (key === 't') doToken()
-    else if (key === 'g') setShowGraph((value) => !value)
+    else if (key === 'g') {
+      // 화면이 좁아 접힌 상태에서 설정만 뒤집히면, 다음에 넓은 창에서 그래프가
+      // 말없이 사라진다.
+      if (!fit.current.graph) notify('화면이 좁아 그래프를 접었습니다')
+      else setShowGraph((value) => !value)
+    }
     else if (key === 'a') {
       setAutoSwitch((value) => {
         notify(value ? '자동 전환 끔' : `자동 전환 켬 (활성이 ${SWITCH_AT}% 넘으면 갈아탐)`)
@@ -366,10 +385,13 @@ export function App({ intervalMs, allowRefresh }) {
       })
     }
     else if (key === 'f') {
-      setShowModelWindows((value) => {
-        notify(value ? 'Fable 숨김' : 'Fable 표시')
-        return !value
-      })
+      if (!fit.current.windows) notify('화면이 낮아 모델별 창을 접었습니다')
+      else {
+        setShowModelWindows((value) => {
+          notify(value ? 'Fable 숨김' : 'Fable 표시')
+          return !value
+        })
+      }
     }
     else if (key === 'd') {
       setGraphMode((value) => {
@@ -411,14 +433,17 @@ export function App({ intervalMs, allowRefresh }) {
   })
 
   // 화면을 위에서부터 쌓아 클릭 좌표를 행으로 되짚는다. 액션 바는 항상 맨 아래다.
-  const layout = useMemo(() => ({
-    panelWidth,
-    // 그래프는 본문 높이에서 상자 테두리 두 줄만 뺀 만큼을 쓴다.
-    graphHeight: Math.max(6, screenRows - HEADER_ROWS - 1 - 2),
-    // 상자 높이도 화면에 맞춘다. 내용만큼 커지게 두면 계정이 많을 때 상자가
+  const layout = useMemo(() => {
+    // 상자 높이는 화면에 맞춘다. 내용만큼 커지게 두면 계정이 많을 때 상자가
     // 화면을 넘어 아래 테두리가 잘린 채로 남는다.
-    panelHeight: Math.max(6, screenRows - HEADER_ROWS - 1),
-  }), [panelWidth, screenRows])
+    const panelHeight = Math.max(6, screenRows - HEADER_ROWS - 1)
+    return {
+      panelWidth,
+      panelHeight,
+      // 그래프는 그 상자에서 테두리 두 줄을 뺀 만큼이다. 따로 재면 상자를 넘는다.
+      graphHeight: Math.max(4, panelHeight - 2),
+    }
+  }, [panelWidth, screenRows])
 
   // 각 항목이 자기 위치를 알려 온다. 행을 손으로 세지 않으므로 창을 접거나
   // 계정이 늘어도 따로 맞출 것이 없다.
@@ -437,52 +462,70 @@ export function App({ intervalMs, allowRefresh }) {
    *
    * 넘치는 만큼은 어차피 잘린다. 고른 계정이 그 잘린 자리에 있으면 무엇을 보고
    * 있는지도, 왜 그래프가 그 계정인지도 알 수 없으므로 그 계정이 들어오도록
-   * 시작을 민다. 아래를 먼저 채우고 남으면 위로 넓힌다.
+   * 민다. 시작점은 되도록 지킨다. 고를 때마다 그 행을 맨 위로 올리면 위쪽
+   * 계정은 영영 안 보이고, 클릭한 행이 튀어 올라 같은 자리를 두 번 누르면
+   * 다른 계정이 잡힌다.
    */
+  const viewStart = useRef(0)
   const view = useMemo(() => {
-    const heights = rows.map((row, index) =>
-      blockHeight(row, windowsVisible) + (row.provider !== rows[index - 1]?.provider ? 1 : 0))
-    const totalRows = (visibleWindows(rows[0]?.usage?.windows, windowsVisible).length || 1) + 2
-    // 상자 테두리 둘, 전체 막대, 추천 넉 줄, 그리고 범례가 있으면 두 줄.
-    const budget = layout.panelHeight - 2 - totalRows
-      - (adviceCompact ? 2 : 4) - (legendVisible ? 2 : 0)
-    const total = heights.reduce((sum, height) => sum + height, 0)
-    if (total <= budget || rows.length === 0) return { start: 0, end: rows.length }
-
-    const target = Math.min(rows.length - 1, Math.max(0, selected))
-    let start = target
-    let end = target + 1
-    let used = heights[target]
-    for (;;) {
-      if (end < rows.length && used + heights[end] <= budget) {
-        used += heights[end]
-        end += 1
-      } else if (start > 0 && used + heights[start - 1] <= budget) {
-        start -= 1
-        used += heights[start]
-      } else break
+    const count = rows.length
+    if (count === 0) return { start: 0, end: 0 }
+    const blocks = rows.map((row) => blockHeight(row, windowsVisible))
+    const isHead = (index) => index === 0 || rows[index].provider !== rows[index - 1].provider
+    // 구간이 차지하는 줄 수. 첫 행에는 늘 머리글이 붙고 안쪽은 provider 가 바뀔
+    // 때 붙는다. 렌더가 그리는 규칙과 같아야 한다.
+    const rowsIn = (start, end) => {
+      let sum = 0
+      for (let index = start; index < end; index += 1) {
+        sum += blocks[index] + (index === start || isHead(index) ? 1 : 0)
+      }
+      return sum
     }
+    const budget = layout.panelHeight - 2
+      - totalBarsHeight(claudeRows, windowsVisible)
+      - adviceHeight(adviceCompact)
+      - (legendVisible ? LEGEND_ROWS : 0)
+    if (rowsIn(0, count) <= budget) {
+      viewStart.current = 0
+      return { start: 0, end: count }
+    }
+
+    const target = Math.min(count - 1, Math.max(0, selected))
+    const endFrom = (start) => {
+      let end = start + 1
+      while (end < count && rowsIn(start, end + 1) <= budget) end += 1
+      return end
+    }
+    let start = Math.min(viewStart.current, target)
+    let end = endFrom(start)
+    if (target >= end) {
+      // 아래로 나갔다. 고른 행이 마지막에 오도록 시작을 민다.
+      end = target + 1
+      start = target
+      while (start > 0 && rowsIn(start - 1, end) <= budget) start -= 1
+    }
+    viewStart.current = start
     return { start, end }
-  }, [rows, selected, windowsVisible, legendVisible, adviceCompact, layout.panelHeight])
+  }, [rows, selected, claudeRows, windowsVisible, legendVisible, adviceCompact, layout.panelHeight])
 
   const onClick = useCallback((row, column) => {
     if (column > layout.panelWidth) return
     // 마우스는 1 부터 세고 배치 좌표는 0 부터 센다.
     const y = row - 1 - columnTop.current
+    // ink 의 overflow 는 그리기만 자르고 배치는 그대로라, 상자 밖으로 밀린 블록도
+    // 좌표를 갖는다. 아래 테두리와 액션 바를 눌러 안 보이는 계정이 잡히면 안 된다.
+    if (y >= layout.panelHeight - 1) return
     for (const [id, box] of hits.current) {
       if (y >= box.top && y < box.top + box.height) {
         setSelected(() => id)
         return
       }
     }
-  }, [layout.panelWidth])
+  }, [layout.panelWidth, layout.panelHeight])
 
   useMouseReporting()
 
   // 추천은 계정 목록의 배지와 아래 요약이 함께 쓴다. 한 번만 계산한다.
-  // 추천과 전체 합계는 Claude 안에서만 선다. Codex 는 창이 7d 하나뿐이라
-  // 같은 자로 재면 5h 가 빈 것처럼 읽힌다.
-  const claudeRows = useMemo(() => rows.filter((row) => row.provider === 'claude'), [rows])
   const tip = useMemo(() => advise(claudeRows, history, now), [claudeRows, history, now])
   const current = selected >= 0 ? rows[selected] : null
   if (rows.length === 0) return <Text color="red">{'Orca 계정을 찾지 못했습니다.'}</Text>
@@ -569,7 +612,7 @@ export function App({ intervalMs, allowRefresh }) {
                     columns={columns - layout.panelWidth - 4}
                     height={layout.graphHeight}
                     mode={graphMode}
-                    showModelWindows={windowsVisible}
+                    showModelWindows={showModelWindows}
                     rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
                   />
@@ -581,7 +624,7 @@ export function App({ intervalMs, allowRefresh }) {
                     columns={columns - layout.panelWidth - 4}
                     height={layout.graphHeight}
                     mode={graphMode}
-                    showModelWindows={windowsVisible}
+                    showModelWindows={showModelWindows}
                     rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
                   />

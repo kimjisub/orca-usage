@@ -11,21 +11,20 @@ const SHOW_CURSOR = '\u001B[?25h'
 const MIN_COLUMNS = 40
 const MIN_ROWS = 10
 
+const measure = () => ({
+  columns: Math.max(MIN_COLUMNS, process.stdout.columns || 100),
+  rows: Math.max(MIN_ROWS, process.stdout.rows || 40),
+})
+
 /** 전체 화면으로 들어가고, 터미널 크기를 계속 따라간다. */
 export function useFullscreen(enabled = true) {
-  const [size, setSize] = useState(() => ({
-    columns: Math.max(MIN_COLUMNS, process.stdout.columns || 100),
-    rows: Math.max(MIN_ROWS, process.stdout.rows || 40),
-  }))
+  const [size, setSize] = useState(measure)
 
   useEffect(() => {
     if (!enabled || !process.stdout.isTTY) return undefined
     process.stdout.write(ENTER + HIDE_CURSOR)
 
-    const onResize = () => setSize({
-      columns: Math.max(MIN_COLUMNS, process.stdout.columns || 100),
-      rows: Math.max(MIN_ROWS, process.stdout.rows || 40),
-    })
+    const onResize = () => setSize(measure())
     process.stdout.on('resize', onResize)
 
     const restore = () => process.stdout.write(SHOW_CURSOR + LEAVE)

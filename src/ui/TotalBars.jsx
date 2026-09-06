@@ -3,8 +3,18 @@ import { Box, Text } from 'ink'
 import { aggregateWindows, visibleWindows } from '../format.js'
 import { Bar } from './Bar.jsx'
 
-/** 제목 + 창 수 + 테두리. 좌측 위아래를 나눌 때 이 높이를 쓴다. */
-export const totalBarsHeight = (windowCount) => windowCount + 3
+/**
+ * 이 블록이 차지하는 줄 수. 제목, 창마다 한 줄(없으면 안내 한 줄), 빈 줄.
+ * 목록이 화면에 몇 계정 들어가는지 잴 때 쓴다. 렌더와 같은 규칙으로 세지
+ * 않으면 예산이 어긋나 아래 추천이 잘린다.
+ */
+export function totalBarsHeight(rows, showModelWindows) {
+  const labels = new Set()
+  for (const row of rows) {
+    for (const window of visibleWindows(row.usage?.windows, showModelWindows)) labels.add(window.label)
+  }
+  return 1 + (labels.size || 1) + 1
+}
 
 /**
  * 계정 전체를 하나의 리소스로 본 슬라이더.
