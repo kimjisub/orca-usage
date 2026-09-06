@@ -20,8 +20,8 @@ const KEEP_RULES = [
 
 function compact(series, now) {
   const kept = []
-  let lastAt = new Map()
-  // 최근 것부터 훑어야 각 구간의 첫 표본이 기준점이 된다.
+  const taken = new Set()
+  // 최근 것부터 훑는다. 같은 칸에 여럿이면 먼저 만나는 최근 것이 남는다.
   for (let index = series.length - 1; index >= 0; index -= 1) {
     const point = series[index]
     const age = now - point.at
@@ -31,10 +31,14 @@ function compact(series, now) {
       kept.push(point)
       continue
     }
-    const previous = lastAt.get(rule.within)
-    if (previous == null || previous - point.at >= rule.every) {
+    // 시각을 고정 격자에 붙인다. 최근 표본을 기준으로 간격을 재면 표본이 올 때마다
+    // 기준이 밀려 바로 앞의 것이 격자 안으로 들어오고, 그래서 하루를 넘긴 표본이
+    // 두엇 말고는 남지 않았다. 실측 2026-09-06: 10일치를 2분 간격으로 넣었더니
+    // 하루 밖에는 2개, 이레 밖에는 0개였다.
+    const slot = `${rule.within}:${Math.floor(point.at / rule.every)}`
+    if (!taken.has(slot)) {
+      taken.add(slot)
       kept.push(point)
-      lastAt.set(rule.within, point.at)
     }
   }
   return kept.reverse()

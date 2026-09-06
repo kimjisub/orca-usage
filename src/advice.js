@@ -4,8 +4,8 @@ import { msUntil } from './format.js'
 const BLOCKED_AT = 90
 // 주간을 이만큼 쓴 계정은 아껴 둘 대상으로 알린다.
 const SPARE_AT = 50
-// 이만큼 넘게 버려질 판이면 소멸 임박으로 본다.
-const WASTE_ALERT = 15
+// 이만큼 넘게 버려질 판이면 소멸 임박으로 본다. 일정 화면도 이 문턱을 쓴다.
+export const WASTE_ALERT = 15
 // 5시간 창은 꽉 채우는 일이 드물어 늘 얼마쯤 버려진다. 상시로 뜨면 신호가
 // 안 되므로 정렬에는 쓰되 이유로 내세우는 문턱은 훨씬 높게 잡는다.
 const SHORT_WASTE_ALERT = 45
@@ -17,7 +17,7 @@ const SHORT_MAX_BURN = 20
 // 수 있나" 를 잰다.
 const LOOKAHEAD_H = 5
 // 7일 창을 얼마나 빨리 태울 수 있는지는 관측으로만 안다. 표본이 없을 때 쓸 하한.
-const WEEKLY_MAX_BURN_FLOOR = 3
+export const WEEKLY_MAX_BURN_FLOOR = 3
 
 const windowOf = (row, label) => (row.usage?.windows ?? []).find((w) => w.label === label)
 
@@ -30,14 +30,20 @@ const windowOf = (row, label) => (row.usage?.windows ?? []).find((w) => w.label 
  */
 function weeklyBurn(history) {
   const points = (history ?? []).filter((point) => typeof point['7d'] === 'number')
-  if (points.length < 2) return null
-  const first = points[0]
-  const last = points.at(-1)
+  // 마지막 리셋 뒤만 본다. 리셋을 넘겨 처음과 끝을 이으면 값이 떨어진 만큼이
+  // 소비를 상쇄해 0 이 나온다. 실측 2026-09-06: 56% 에서 리셋 뒤 7% 가 된 계정이
+  // 속도 0 으로 잡혀 "이 속도로 넉넉" 이 떴다.
+  let start = 0
+  for (let index = 1; index < points.length; index += 1) {
+    if (points[index]['7d'] < points[index - 1]['7d']) start = index
+  }
+  const since = points.slice(start)
+  if (since.length < 2) return null
+  const first = since[0]
+  const last = since.at(-1)
   const hours = (last.at - first.at) / HOUR_MS
   if (hours <= 0) return null
-  const delta = last['7d'] - first['7d']
-  // 창이 리셋되면 값이 떨어진다. 소비가 아니라 초기화라 속도로 쓰지 않는다.
-  return delta > 0 ? delta / hours : 0
+  return Math.max(0, last['7d'] - first['7d']) / hours
 }
 
 /**
@@ -48,7 +54,10 @@ function weeklyBurn(history) {
  * 클수록, 리셋이 가까울수록 커진다.
  */
 function burnNeeded(remaining, msLeft) {
-  if (msLeft == null || msLeft <= 0) return Infinity
+  // 리셋 시각을 모르는 것은 창을 아직 안 열었다는 뜻이다. 급할 것이 없으니 0
+  // 이다. Infinity 로 두면 정보가 가장 적은 계정이 늘 1순위가 된다.
+  if (msLeft == null) return 0
+  if (msLeft <= 0) return Infinity
   return remaining / (msLeft / HOUR_MS)
 }
 
