@@ -17,6 +17,7 @@ import { TotalBars, totalBarsHeight } from './TotalBars.jsx'
 import { Advice, Graph, OverviewGraph, adviceHeight } from './Graph.jsx'
 import { Hit, HitRoot } from './Hit.jsx'
 import { Schedule } from './Schedule.jsx'
+import { OPEN_COOLDOWN_MS, needsOpening, openWindow } from '../keepalive.js'
 
 const HEADER_ROWS = 2
 // 활성 계정만 따로 확인하는 주기. 사용량 조회와 달리 소켓 한 번이라 가볍고,
@@ -43,12 +44,13 @@ const ACTIONS = [
   { key: 'f', label: 'Fable' },
   { key: 'w', label: '기간' },
   { key: 'a', label: '자동' },
+  { key: 'o', label: '창유지' },
   { key: 'enter', label: '전환' },
   { key: 'g', label: '그래프' },
   { key: 'q', label: '종료' },
 ]
 
-function Header({ nextPollAt, busy, now, message, autoSwitch, direct }) {
+function Header({ nextPollAt, busy, now, message, autoSwitch, keepAlive, direct }) {
   const right = busy
     ? '조회 중'
     : nextPollAt ? `다음 조회 ${shortSpan(nextPollAt - now)}` : ''
@@ -64,6 +66,7 @@ function Header({ nextPollAt, busy, now, message, autoSwitch, direct }) {
           {/* Orca 없이 직접 치는 중이면 알린다. 값이 낡거나 백오프에 걸릴 수 있어서다. */}
           {direct ? <Text color="yellow">{'Orca 연결 안 됨, 직접 조회  '}</Text> : null}
           {autoSwitch ? <Text color="green" bold>{'자동 전환  '}</Text> : null}
+          {keepAlive ? <Text color="green" bold>{'창 유지  '}</Text> : null}
           <Text color="gray">{right}</Text>
         </Text>
       </Box>
@@ -159,6 +162,12 @@ export function App({ intervalMs, allowRefresh }) {
   const [rangeIndex, setRangeIndex] = useState(saved.rangeIndex)
   // 기본은 꺼 둔다. 계정을 바꾸는 일이라 켜는 것은 사람이 정한다.
   const [autoSwitch, setAutoSwitch] = useState(saved.autoSwitch)
+  // 창 유지. 안 쓰는 계정의 5h 창을 열어 두어 리셋 시계가 돌게 한다.
+  const [keepAlive, setKeepAlive] = useState(saved.keepAlive)
+  const keepAliveRef = useRef(false)
+  useEffect(() => { keepAliveRef.current = keepAlive }, [keepAlive])
+  // 계정별로 마지막에 창을 연 시각. 한 바퀴 안에 두 번 보내지 않는다.
+  const openedAt = useRef(new Map())
   const lastSwitchAt = useRef(saved.lastSwitchAt)
   const switching = useRef(false)
   const [decision, setDecision] = useState(null)
@@ -249,9 +258,10 @@ export function App({ intervalMs, allowRefresh }) {
       showModelWindows,
       showGraph,
       autoSwitch,
+      keepAlive,
       selectedId: selected >= 0 ? (rows[selected]?.id ?? null) : null,
     })
-  }, [graphMode, rangeIndex, showModelWindows, showGraph, autoSwitch, selected, rows])
+  }, [graphMode, rangeIndex, showModelWindows, showGraph, autoSwitch, keepAlive, selected, rows])
 
   // poll 안에서 읽으므로 ref 로 둔다. 상태를 의존성에 넣으면 껐다 켤 때마다
   // 폴링 타이머가 통째로 다시 걸린다.
@@ -306,6 +316,16 @@ export function App({ intervalMs, allowRefresh }) {
       })
       setRows((previous) => previous.map((item) => fresh.find((r) => r.id === item.id) ?? item))
       setHistory(loadHistory())
+      if (keepAliveRef.current) {
+        const now = Date.now()
+        for (const row of fresh) {
+          if (!needsOpening(row, now)) continue
+          if (now - (openedAt.current.get(row.id) ?? 0) < OPEN_COOLDOWN_MS) continue
+          openedAt.current.set(row.id, now)
+          const result = await openWindow(row.id)
+          notify(result.ok ? `${row.email} 5h 창 열음` : `${row.email} 창 못 열음: ${result.reason}`)
+        }
+      }
       if (allowSwitch.current) await maybeSwitch(fresh)
       else {
         const claude = fresh.filter((row) => row.provider === 'claude')
@@ -390,6 +410,12 @@ export function App({ intervalMs, allowRefresh }) {
       if (!fit.current.graph) notify('화면이 좁아 그래프를 접었습니다')
       else setShowGraph((value) => !value)
     }
+    else if (key === 'o') {
+      setKeepAlive((value) => {
+        notify(value ? '창 유지 끔' : '창 유지 켬 (닫힌 5h 창을 요청 하나로 엽니다)')
+        return !value
+      })
+    }
     else if (key === 'a') {
       setAutoSwitch((value) => {
         notify(value ? '자동 전환 끔' : `자동 전환 켬 (활성이 ${SWITCH_AT}% 넘으면 갈아탐)`)
@@ -448,7 +474,7 @@ export function App({ intervalMs, allowRefresh }) {
       else if (char >= '1' && char <= '9') {
         const index = Number(char) - 1
         if (index < rows.length) setSelected(index)
-      } else if ('rtdfgqwa'.includes(char)) runAction(char)
+      } else if ('rtdfgqwao'.includes(char)) runAction(char)
     }
   })
 
@@ -558,6 +584,7 @@ export function App({ intervalMs, allowRefresh }) {
         now={now}
         message={message}
         autoSwitch={autoSwitch}
+        keepAlive={keepAlive}
         direct={rows.some((row) => row.source === 'direct')}
       />
       <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">

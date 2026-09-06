@@ -71,7 +71,8 @@ orca-usage --no-refresh-tokens never refresh an expired token
 | `r` | Refresh all | `t` | Reissue the selected account's token |
 | `d` | Cycle usage / consumption rate / week ahead | `f` | Show or hide per-model windows |
 | `w` | Cycle the range (3h to 1M) | `a` | Toggle automatic switching |
-| `g` | Collapse or expand the graph | `q` | Quit |
+| `g` | Collapse or expand the graph | `o` | Toggle window keep-alive |
+| `q` | Quit | | |
 | `Enter` | Point Orca at the selected account | `1`-`9` | Jump to an account |
 
 Arrow keys or `j` / `k` move the selection. Clicking a row works too.
@@ -93,6 +94,10 @@ Arrow keys or `j` / `k` move the selection. Clicking a row works too.
 Off by default; `a` turns it on, and it only moves between Claude accounts. When the tightest window on the active account passes 80% and another account is more than 15 percentage points freer, orca-usage asks the Orca runtime to switch. After a switch it waits 10 minutes before switching again.
 
 Terminals that are already open keep running on the old account. The new one applies to sessions you open afterwards.
+
+## Window keep-alive
+
+Off by default; `o` turns it on. The 5-hour and 7-day windows only start counting on the first request, so an account you are not using has no reset clock running. When you do switch to it you wait the full five hours or seven days from that moment. With keep-alive on, each poll looks for Claude accounts whose 5h window is missing or has closed and sends a one-token request to the cheapest model to open it. Opening the 5h window starts the 7d one too. The cost is below the integer percent the usage endpoint reports, so it shows as zero. The same account is not touched twice within ten minutes, and the token is only read, never rotated.
 
 ## How it works
 

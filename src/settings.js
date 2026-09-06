@@ -22,6 +22,7 @@ const DEFAULTS = {
   showModelWindows: true,
   showGraph: true,
   autoSwitch: false,
+  keepAlive: false,
   selectedId: null,
   lastSwitchAt: 0,
 }
