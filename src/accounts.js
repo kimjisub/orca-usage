@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fetchCodex } from './codex.js'
 import { HOME, ORCA_ACCOUNTS } from './paths.js'
 
 /** 지금 Claude Code 가 붙어 있는 계정. ~/.claude.json 만 읽는다. */
@@ -27,6 +28,7 @@ export function collectAccounts() {
     }
     accounts.push({
       id,
+      provider: 'claude',
       email: meta.emailAddress ?? id.slice(0, 8),
       label: labelFor(meta),
       tier: meta.organizationRateLimitTier ?? '',
@@ -49,4 +51,19 @@ function labelFor(meta) {
   if (tier.includes('max')) return 'Max'
   if (tier.includes('pro')) return 'Pro'
   return meta.organizationType === 'claude_max' ? 'Max' : ''
+}
+
+/**
+ * 화면에 세울 계정 전부. Claude 뒤에 Codex 를 붙이고 번호를 이어 매긴다.
+ *
+ * Claude 는 디렉터리를 읽으면 끝이지만 Codex 는 Orca 에 물어야 해서 비동기다.
+ * Orca 가 안 뜬 상태에서도 Claude 는 보여야 하므로 실패는 삼킨다.
+ */
+export async function collectAllAccounts() {
+  const claude = collectAccounts()
+  let codex = []
+  try {
+    codex = (await fetchCodex()).accounts
+  } catch { /* Orca 가 꺼져 있으면 Claude 만 보여 준다 */ }
+  return [...claude, ...codex].map((account, index) => ({ ...account, index: index + 1 }))
 }

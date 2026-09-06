@@ -1,6 +1,7 @@
 import { CredentialError } from './credentials.js'
 import { REFRESH_MIN_GAP_MS, ensureToken, fetchUsage, normalize } from './oauth.js'
-import { activeAccountId } from './orca-rpc.js'
+import { fetchCodex } from './codex.js'
+import { activeAccountIds } from './orca-rpc.js'
 import { appendHistory, loadCache, loadHistory, saveCache, saveHistory } from './store.js'
 
 // 429 는 Retry-After: 0 으로 오는 일이 잦다. 그대로 믿으면 쉬지 않고 다시 때린다.
@@ -32,14 +33,52 @@ export async function pollOnce(accounts, {
 
   // 활성 계정은 Orca 에 직접 묻는다. ~/.claude.json 은 Claude Code 가 로그인할
   // 때 쓰는 파일이라, Orca 에서 계정을 바꿔도 그 파일은 그대로다.
-  let activeId = null
+  let activeIds = {}
   try {
-    activeId = await activeAccountId()
+    activeIds = await activeAccountIds()
   } catch { /* 못 받으면 앞서 파일에서 읽은 값을 그대로 쓴다 */ }
+
+  // Codex 사용량은 Orca 가 계정별로 들고 있어 한 번의 조회로 전부 받는다.
+  // 계정마다 따로 부르면 같은 응답을 사람 수만큼 받게 된다.
+  let codexById = new Map()
+  if (targets.some((account) => account.provider === 'codex')) {
+    try {
+      const codex = await fetchCodex({ refreshUsage: force })
+      codexById = new Map(codex.accounts.map((account) => [account.id, account]))
+    } catch { /* 못 받으면 캐시에 있는 값을 그대로 보여 준다 */ }
+  }
 
   for (const [position, account] of targets.entries()) {
     const entry = { ...(cache[account.id] ?? {}) }
     const now = Date.now()
+
+    // Codex 는 토큰도 백오프도 우리 몫이 아니다. Orca 가 준 값을 그대로 옮긴다.
+    if (account.provider === 'codex') {
+      const got = codexById.get(account.id)
+      if (got?.usage) {
+        entry.usage = got.usage
+        entry.fetchedAt = got.fetchedAt ?? Date.now()
+        entry.credits = got.credits ?? null
+        appendHistory(history, account.id, got.usage.windows)
+      }
+      cache[account.id] = entry
+      const codexRow = {
+        ...account,
+        active: account.id === (activeIds.codex ?? null),
+        usage: entry.usage ?? null,
+        fetchedAt: entry.fetchedAt ?? null,
+        credits: entry.credits ?? null,
+        refreshedAt: null,
+        expiresAt: null,
+        retryUntil: null,
+        authFailed: false,
+        note: got?.note ?? null,
+      }
+      rows.push(codexRow)
+      onAccount(codexRow)
+      continue
+    }
+
     const fresh = !force && now - (entry.fetchedAt ?? 0) < freshForMs
     const blocked = !force && now < (entry.retryUntil ?? 0)
     let note = null
@@ -100,7 +139,7 @@ export async function pollOnce(accounts, {
     cache[account.id] = entry
     const row = {
       ...account,
-      active: activeId ? account.id === activeId : account.active,
+      active: activeIds.claude ? account.id === activeIds.claude : account.active,
       usage: entry.usage ?? null,
       fetchedAt: entry.fetchedAt ?? null,
       refreshedAt: entry.refreshedAt ?? null,
@@ -131,6 +170,7 @@ export function rowsFromCache(accounts) {
       expiresAt: entry.expiresAt ?? null,
       retryUntil: entry.retryUntil ?? null,
       authFailed: Boolean(entry.authFailed),
+      credits: entry.credits ?? null,
       note: null,
     }
   })

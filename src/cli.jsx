@@ -1,6 +1,6 @@
 import React from 'react'
 import { render } from 'ink'
-import { collectAccounts } from './accounts.js'
+import { collectAllAccounts } from './accounts.js'
 import { pollOnce, rowsFromCache } from './poller.js'
 import { App } from './ui/App.jsx'
 
@@ -26,7 +26,7 @@ function parseArgs(argv) {
   return options
 }
 
-const HELP = `orca-usage - Orca 가 관리하는 Claude 계정들의 사용량을 봅니다.
+const HELP = `orca-usage - Orca 가 관리하는 Claude 와 Codex 계정들의 사용량을 봅니다.
 
   orca-usage                     대화형 화면 (기본 120초 주기)
   orca-usage --interval 600      조회 주기를 초로 지정 (최소 60)
@@ -43,14 +43,15 @@ const HELP = `orca-usage - Orca 가 관리하는 Claude 계정들의 사용량�
   Enter 를 누르면 고른 계정으로 Orca 를 옮깁니다.
 
 자동 계정 전환:
-  a 로 켭니다. 기본은 꺼져 있습니다.
+  a 로 켭니다. 기본은 꺼져 있습니다. Claude 계정 사이에서만 돕니다.
   활성 계정의 가장 빡빡한 창이 80% 를 넘고, 갈 곳이 15%p 넘게 여유로우면
   Orca 런타임에 직접 요청해 계정을 바꿉니다. 한 번 옮기면 10분은 다시 옮기지
   않습니다. 이미 떠 있는 터미널은 옛 계정으로 계속 돌고, 바뀐 계정은 그다음에
   여는 세션부터 적용됩니다.
 
 계정 표시:
-  *         이름 앞의 별표는 Orca 가 지금 붙어 있는 계정입니다
+  *         이름 앞의 별표는 Orca 가 지금 붙어 있는 계정입니다. provider 마다 따로입니다
+  리셋 크레딧  Codex 에만 있습니다. 쓰면 짧은 창이 즉시 비워집니다
   한도 임박  5h 또는 7d 가 90% 이상이라 지금은 못 씁니다
   이름 빨강  자격증명이 끊겨 다시 로그인해야 합니다. 사유는 이름 옆에 붙습니다
   우선 사용  지금 붙기 가장 좋은 계정입니다
@@ -65,7 +66,7 @@ async function main() {
     return
   }
 
-  const accounts = collectAccounts()
+  const accounts = await collectAllAccounts()
   if (accounts.length === 0) {
     process.stderr.write('Orca 계정을 찾지 못했습니다.\n')
     process.exitCode = 1

@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useApp, useInput } from 'ink'
-import { collectAccounts } from '../accounts.js'
+import { collectAccounts, collectAllAccounts } from '../accounts.js'
 import { advise } from '../advice.js'
 import { SWITCH_AT, decideSwitch } from '../autoswitch.js'
 import { RANGES } from '../chart.js'
-import { activeAccountId, selectClaudeAccount } from '../orca-rpc.js'
+import { activeAccountIds, selectClaudeAccount } from '../orca-rpc.js'
+import { selectCodexAccount } from '../codex.js'
 import { loadSettings, saveSettings } from '../settings.js'
 import { shortSpan } from '../format.js'
 import { useFullscreen } from '../fullscreen.js'
@@ -20,6 +21,8 @@ const HEADER_ROWS = 2
 // 활성 계정만 따로 확인하는 주기. 사용량 조회와 달리 소켓 한 번이라 가볍고,
 // Orca 에서 손으로 바꾼 것이 화면에 늦게 뜨면 어느 계정으로 도는지 헷갈린다.
 const ACTIVE_POLL_MS = 5000
+// 섹션 머리글. 계정 수와 창 구조가 provider 마다 달라 목록을 갈라 세운다.
+const PROVIDER_LABEL = { claude: 'Claude', codex: 'Codex' }
 // 라벨을 짧게 둔다. 아래 한 줄에 범례까지 같이 실려서 길면 통째로 밀린다.
 const ACTIONS = [
   { key: 'r', label: '조회' },
@@ -95,15 +98,36 @@ export function App({ intervalMs, allowRefresh }) {
   const { columns, rows: screenRows } = useFullscreen()
 
   const saved = useMemo(() => loadSettings(), [])
-  const accounts = useMemo(() => collectAccounts(), [])
+  // Claude 는 디렉터리를 읽으면 끝이라 첫 프레임에 바로 세운다. Codex 는 Orca 에
+  // 물어야 해서 곧이어 합류한다. 기다렸다 함께 그리면 첫 화면이 그만큼 늦다.
+  const [accounts, setAccounts] = useState(() => collectAccounts())
   const [rows, setRows] = useState(() => rowsFromCache(accounts))
   // 어느 계정에 붙어 있는지는 Orca 만 안다. 행마다 박아 두면 일부만 갱신했을 때
   // 옛 표시가 남아 별표가 둘이 된다. 한 곳에 두고 화면이 그때그때 비교한다.
-  const [activeId, setActiveId] = useState(() => accounts.find((a) => a.active)?.id ?? null)
+  const [activeIds, setActiveIds] = useState(
+    () => ({ claude: accounts.find((account) => account.active)?.id ?? null, codex: null }))
   // poll 안에서 읽으므로 ref 로도 들고 있는다. 의존성에 넣으면 계정이 바뀔 때마다
   // 폴링 타이머가 통째로 다시 걸린다.
-  const activeIdRef = useRef(activeId)
-  useEffect(() => { activeIdRef.current = activeId }, [activeId])
+  const activeIdsRef = useRef(activeIds)
+  useEffect(() => { activeIdsRef.current = activeIds }, [activeIds])
+
+  useEffect(() => {
+    let alive = true
+    collectAllAccounts()
+      .then((all) => {
+        if (!alive) return
+        setAccounts(all)
+        // 그 사이 폴링이 채운 값을 지우지 않는다. 새로 합류한 계정만 캐시에서 온다.
+        setRows((previous) => {
+          const known = new Map(previous.map((row) => [row.id, row]))
+          return rowsFromCache(all).map((row) => ({
+            ...row, ...known.get(row.id), index: row.index, provider: row.provider,
+          }))
+        })
+      })
+      .catch(() => { /* Orca 가 꺼져 있으면 Claude 만 보여 준다 */ })
+    return () => { alive = false }
+  }, [])
   const [history, setHistory] = useState(() => loadHistory())
   // 저장된 선택은 초기값에서 바로 정한다. effect 로 나중에 덮으면 그 사이에
   // 들어온 클릭이 되감긴다. 계정 id 로 찾으므로 목록이 바뀌어도 안전하다.
@@ -159,8 +183,8 @@ export function App({ intervalMs, allowRefresh }) {
     let alive = true
     const tick = async () => {
       try {
-        const id = await activeAccountId()
-        if (alive && id) setActiveId(id)
+        const ids = await activeAccountIds()
+        if (alive) setActiveIds(ids)
       } catch { /* Orca 가 꺼져 있으면 마지막으로 안 값을 그대로 둔다 */ }
     }
     tick()
@@ -196,7 +220,7 @@ export function App({ intervalMs, allowRefresh }) {
   const maybeSwitch = useCallback(async (fresh) => {
     if (switching.current) return
     const verdict = decideSwitch(fresh, advise(fresh, loadHistory()), {
-      activeId: activeIdRef.current,
+      activeId: activeIdsRef.current.claude,
       lastSwitchAt: lastSwitchAt.current,
     })
     // 안 옮길 때도 판단을 남긴다. 화면이 왜 가만히 있는지 설명해야 한다.
@@ -237,7 +261,7 @@ export function App({ intervalMs, allowRefresh }) {
       if (allowSwitch.current) await maybeSwitch(fresh)
       else {
         setDecision(decideSwitch(fresh, advise(fresh, loadHistory()), {
-          activeId: activeIdRef.current,
+          activeId: activeIdsRef.current.claude,
           lastSwitchAt: lastSwitchAt.current,
         }))
       }
@@ -283,14 +307,15 @@ export function App({ intervalMs, allowRefresh }) {
     if (selected < 0) return notify('계정을 고른 뒤 눌러 주세요')
     const row = rows[selected]
     if (!row) return
-    if (row.id === activeId) return notify('이미 이 계정에 붙어 있습니다')
+    if (row.id === activeIds[row.provider]) return notify('이미 이 계정에 붙어 있습니다')
     if (switching.current) return
 
     switching.current = true
     try {
-      await selectClaudeAccount(row.id)
+      if (row.provider === 'codex') await selectCodexAccount(row.id)
+      else await selectClaudeAccount(row.id)
       // 다음 확인까지 기다리면 눌러 놓고 표시가 안 바뀐다.
-      setActiveId(row.id)
+      setActiveIds((previous) => ({ ...previous, [row.provider]: row.id }))
       // 수동 전환도 쿨다운에 넣는다. 안 그러면 자동 전환이 곧바로 되돌린다.
       lastSwitchAt.current = Date.now()
       saveSettings({ lastSwitchAt: lastSwitchAt.current })
@@ -301,7 +326,7 @@ export function App({ intervalMs, allowRefresh }) {
     } finally {
       switching.current = false
     }
-  }, [rows, selected, activeId, notify, poll])
+  }, [rows, selected, activeIds, notify, poll])
 
   const runAction = useCallback((key) => {
     if (key === 'r') doRefresh()
@@ -398,7 +423,10 @@ export function App({ intervalMs, allowRefresh }) {
   useMouseReporting()
 
   // 추천은 계정 목록의 배지와 아래 요약이 함께 쓴다. 한 번만 계산한다.
-  const tip = useMemo(() => advise(rows, history, now), [rows, history, now])
+  // 추천과 전체 합계는 Claude 안에서만 선다. Codex 는 창이 7d 하나뿐이라
+  // 같은 자로 재면 5h 가 빈 것처럼 읽힌다.
+  const claudeRows = useMemo(() => rows.filter((row) => row.provider === 'claude'), [rows])
+  const tip = useMemo(() => advise(claudeRows, history, now), [claudeRows, history, now])
   const current = selected >= 0 ? rows[selected] : null
   if (rows.length === 0) return <Text color="red">{'Orca 계정을 찾지 못했습니다.'}</Text>
 
@@ -422,7 +450,7 @@ export function App({ intervalMs, allowRefresh }) {
         >
           <Hit id={-1} onMeasure={onHit}>
             <TotalBars
-            rows={rows}
+            rows={claudeRows}
             width={layout.panelWidth - 4}
             now={now}
             showModelWindows={showModelWindows}
@@ -430,10 +458,14 @@ export function App({ intervalMs, allowRefresh }) {
             />
           </Hit>
           {rows.map((row, index) => (
-            <Hit key={row.id} id={index} onMeasure={onHit}>
+            <React.Fragment key={row.id}>
+              {row.provider !== rows[index - 1]?.provider
+                ? <Text color="gray">{PROVIDER_LABEL[row.provider] ?? row.provider}</Text>
+                : null}
+            <Hit id={index} onMeasure={onHit}>
               <AccountBlock
                 row={row}
-                active={row.id === activeId}
+                active={row.id === activeIds[row.provider]}
                 selected={index === selected}
                 now={now}
                 barWidth={barWidth}
@@ -442,6 +474,7 @@ export function App({ intervalMs, allowRefresh }) {
                 badge={tip?.badges?.[row.id]}
               />
             </Hit>
+            </React.Fragment>
           ))}
           <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
             <Advice tip={tip} autoSwitch={autoSwitch} decision={decision} />

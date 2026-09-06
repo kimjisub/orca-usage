@@ -20,7 +20,8 @@ export const ACTIVE_MARK = '*'
 
 export function blockHeight(row, showModelWindows = true) {
   const windows = visibleWindows(row.usage?.windows, showModelWindows).length
-  return 1 + (windows || 1) + 1 // 머리글 + 창들(없으면 안내 1줄) + 빈 줄
+  const credits = row.credits?.available ? 1 : 0
+  return 1 + (windows || 1) + credits + 1 // 머리글 + 창들(없으면 안내 1줄) + 크레딧 + 빈 줄
 }
 
 /**
@@ -72,6 +73,11 @@ export function AccountBlock({
           />
           ))
         : <Text color="gray">{'     아직 받은 사용량이 없습니다'}</Text>}
+
+      {/* 크레딧을 쓰면 짧은 창이 즉시 비므로, 남은 개수가 곧 몇 번 더 버티느냐다. */}
+      {row.credits?.available
+        ? <Text color="gray">{`     리셋 크레딧 ${row.credits.available}개`}</Text>
+        : null}
 
       <Text> </Text>
     </>

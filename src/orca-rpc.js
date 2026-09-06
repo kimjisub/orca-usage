@@ -77,10 +77,20 @@ export function call(method, params = {}) {
   })
 }
 
-/** 지금 Orca 가 붙어 있는 Claude 계정 id. */
-export async function activeAccountId() {
+/**
+ * 지금 Orca 가 붙어 있는 계정 id. provider 마다 따로다.
+ *
+ * Codex 는 계정을 안 고른 채로도 돈다. 그때 activeAccountId 는 null 이고
+ * systemDefault 가 쓰인다.
+ *
+ * @returns {Promise<{claude: string|null, codex: string|null}>}
+ */
+export async function activeAccountIds() {
   const result = await call('accounts.list', { refreshUsage: false })
-  return result?.claude?.activeAccountId ?? null
+  return {
+    claude: result?.claude?.activeAccountId ?? null,
+    codex: result?.codex?.activeAccountId ?? null,
+  }
 }
 
 /**

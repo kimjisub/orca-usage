@@ -1,6 +1,6 @@
 # orca-usage
 
-A terminal dashboard for the Claude accounts managed by [Orca](https://orca.computer). It shows how much of each account's rate limit is left, plots the history, and can move Orca to a less busy account before the one you are on runs out.
+A terminal dashboard for the Claude and Codex accounts managed by [Orca](https://orca.computer). It shows how much of each account's rate limit is left, plots the history, and can move Orca to a less busy account before the one you are on runs out.
 
 ```
   전체 리소스   4 계정                          alice@example.com  사용량 %  6h
@@ -20,6 +20,7 @@ A terminal dashboard for the Claude accounts managed by [Orca](https://orca.comp
 ## What it does
 
 - **Reads every account at once.** Orca keeps each Claude login in its own credential slot; this walks all of them instead of only the one you are attached to.
+- **Covers both providers.** Claude and Codex accounts are listed in separate sections, because they do not share a window layout: Claude reports a 5-hour, a 7-day and per-model window, Codex reports a weekly one plus rate-limit reset credits.
 - **Tracks the windows that matter.** The 5-hour and 7-day limits, plus per-model windows when you want them.
 - **Plots history.** Usage level over time, or consumption rate in percentage points per hour. Ranges from 3 hours to a month.
 - **Leaves gaps where there is no data.** Sampling gaps are drawn as gaps, not as a flat line carried forward from the last reading.
@@ -29,7 +30,7 @@ A terminal dashboard for the Claude accounts managed by [Orca](https://orca.comp
 ## Requirements
 
 - macOS. Credentials live in the login keychain and are read through `/usr/bin/security`.
-- [Orca](https://orca.computer), running, with at least one Claude account signed in.
+- [Orca](https://orca.computer), running, with at least one Claude or Codex account signed in.
 - [Bun](https://bun.sh). It runs the JSX directly, so there is no build step.
 
 ## Install
@@ -84,16 +85,19 @@ Arrow keys or `j` / `k` move the selection. Clicking a row works too.
 | 우선 사용 | Best account to be on |
 | 소진 권장 | Weekly quota large enough that it will expire unused; spend it |
 | 사용 자제 | More than half the week is gone; save this one |
+| 리셋 크레딧 | Codex only. Spending one empties the short window straight away |
 
 ## Automatic switching
 
-Off by default; `a` turns it on. When the tightest window on the active account passes 80% and another account is more than 15 percentage points freer, orca-usage asks the Orca runtime to switch. After a switch it waits 10 minutes before switching again.
+Off by default; `a` turns it on, and it only moves between Claude accounts. When the tightest window on the active account passes 80% and another account is more than 15 percentage points freer, orca-usage asks the Orca runtime to switch. After a switch it waits 10 minutes before switching again.
 
 Terminals that are already open keep running on the old account. The new one applies to sessions you open afterwards.
 
 ## How it works
 
 Orca stores each Claude account under `~/Library/Application Support/orca/claude-accounts/`, with its OAuth credentials in the login keychain. orca-usage reads those credentials, refreshes the access token when it has expired, and calls Anthropic's usage endpoint for each account.
+
+Codex works the other way round. Orca already holds a per-account rate limit for it, so orca-usage asks the runtime for those numbers in one call instead of touching Codex credentials at all. Nothing there can break a token.
 
 The account Orca is currently attached to comes from the Orca runtime over its local Unix socket, not from `~/.claude.json`. That file records where Claude Code last logged in, which drifts from Orca's choice as soon as you switch accounts in the app.
 
