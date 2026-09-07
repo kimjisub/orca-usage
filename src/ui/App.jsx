@@ -17,6 +17,8 @@ import { TotalBars, totalBarsHeight } from './TotalBars.jsx'
 import { Advice, AutoBlock, Graph, OverviewGraph, adviceHeight, autoBlockHeight } from './Graph.jsx'
 import { Hit, HitRoot } from './Hit.jsx'
 import { Schedule } from './Schedule.jsx'
+import { Log } from './Log.jsx'
+import { log, loadLog } from '../log.js'
 import { OPEN_COOLDOWN_MS, needsOpening, openWindow } from '../keepalive.js'
 
 const HEADER_ROWS = 2
@@ -25,6 +27,13 @@ const HEADER_ROWS = 2
 const ACTIVE_POLL_MS = 5000
 // 섹션 머리글. 계정 수와 창 구조가 provider 마다 달라 목록을 갈라 세운다.
 const PROVIDER_LABEL = { claude: 'Claude', codex: 'Codex' }
+// 오른쪽 패널이 보여줄 것. d 가 이 순서로 돌고 탭도 이 순서다.
+const GRAPH_TABS = [
+  { mode: 'level', label: '사용량' },
+  { mode: 'rate', label: '소비' },
+  { mode: 'schedule', label: '일정' },
+  { mode: 'log', label: '기록' },
+]
 // 그래프 상자 안쪽이 이보다 좁으면 그래프를 접고 목록이 폭을 다 쓴다. 눈금
 // 여섯 칸을 빼고 서른 칸은 있어야 선이 형태를 갖춘다. 화면 폭이 아니라 목록이
 // 쓰고 남는 칸으로 재는 이유는, 목록 폭이 긴 이메일을 따라 늘기 때문이다.
@@ -92,6 +101,20 @@ function ActionBar() {
         <Text key={action.key}>
           <Text color="cyan">{`[${action.key}]`}</Text>
           <Text color="gray">{` ${action.label}  `}</Text>
+        </Text>
+      ))}
+    </Text>
+  )
+}
+
+/** 오른쪽 패널의 탭. 무엇을 볼 수 있고 지금 어디인지 한 줄로 보인다. */
+function GraphTabs({ mode }) {
+  return (
+    <Text wrap="truncate">
+      <Text color="gray">{' d '}</Text>
+      {GRAPH_TABS.map((tab) => (
+        <Text key={tab.mode} color={tab.mode === mode ? 'cyan' : 'gray'} bold={tab.mode === mode}>
+          {tab.mode === mode ? ` [${tab.label}]` : `  ${tab.label} `}
         </Text>
       ))}
     </Text>
@@ -166,9 +189,28 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const keepAliveRef = useRef(false)
   useEffect(() => { keepAliveRef.current = keepAlive }, [keepAlive])
   // 계정별로 마지막에 창을 연 시각. 한 바퀴 안에 두 번 보내지 않는다.
-  const openedAt = useRef(new Map())
+  // 같은 것을 두 번 적지 않으려고 마지막으로 본 상태를 들고 있는다. 시작할 때
+  // 캐시에 남아 있던 값은 지난 일이라 이미 본 것으로 친다. 그러지 않으면 앱을
+  // 켤 때마다 옛 갱신 시각이 새 사건으로 찍힌다.
+  const lastShape = useRef('')
+  const refreshSeen = useRef(null)
+  const authSeen = useRef(null)
+  if (refreshSeen.current == null) {
+    const seeded = rowsFromCache(accounts)
+    refreshSeen.current = new Map(seeded.filter((row) => row.refreshedAt).map((row) => [row.id, row.refreshedAt]))
+    authSeen.current = new Set(seeded.filter((row) => row.authFailed).map((row) => row.id))
+  }
   // 마지막으로 창을 연 결과. 자동 블록이 보인다.
   const [lastOpen, setLastOpen] = useState(null)
+  const [logEntries, setLogEntries] = useState(() => loadLog())
+  // 폴링 안에서 읽으므로 ref 로도 들고 있는다. 의존성에 넣으면 기록이 쌓일 때마다
+  // 폴링 타이머가 다시 걸린다.
+  const logRef = useRef(logEntries)
+  // 기록은 여러 곳에서 남긴다. 한 곳으로 모아 화면 갱신을 함께 처리한다.
+  const note = useCallback((kind, text, detail) => {
+    logRef.current = log(kind, text, detail).slice().reverse()
+    setLogEntries(logRef.current)
+  }, [])
   const lastSwitchAt = useRef(saved.lastSwitchAt)
   const switching = useRef(false)
   const [decision, setDecision] = useState(null)
@@ -202,7 +244,8 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   // 그래프 상자의 테두리와 패딩 넷을 뺀 나머지가 그래프에 돌아간다.
   const graphFits = columns - listWidth - 4 >= MIN_GRAPH_WIDTH
   const windowsFit = screenRows >= TIGHT_ROWS
-  const graphVisible = showGraph && graphFits
+  // 기록은 선이 아니라 글이라 좁은 화면에서도 읽힌다. 그래프 폭 조건을 안 건다.
+  const graphVisible = showGraph && (graphMode === 'log' || graphFits)
   const windowsVisible = showModelWindows && windowsFit
   const legendVisible = screenRows >= MIN_LEGEND_ROWS
   const adviceCompact = screenRows < TIGHT_ROWS
@@ -289,10 +332,12 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     switching.current = true
     try {
       await selectClaudeAccount(verdict.target.id)
+      note('switch', `자동[${verdict.why}] ${verdict.reason}`, { email: verdict.target.email })
       lastSwitchAt.current = Date.now()
       saveSettings({ lastSwitchAt: lastSwitchAt.current })
       notify(`계정 전환: ${verdict.reason}`)
     } catch (error) {
+      note('error', `자동 전환 실패: ${error.message}`, { email: verdict.target.email })
       notify(`전환 실패: ${error.message}`)
       setDecision({ action: 'hold', reason: `전환 실패: ${error.message}` })
     } finally {
@@ -317,14 +362,35 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       })
       setRows((previous) => previous.map((item) => fresh.find((r) => r.id === item.id) ?? item))
       setHistory(loadHistory())
+      const shape = fresh.map((row) => `${row.id}:${row.source}:${row.note ?? ''}`).join('|')
+      if (shape !== lastShape.current) {
+        lastShape.current = shape
+        const viaOrca = fresh.filter((row) => row.source === 'orca').length
+        note('poll', `${fresh.length} 계정, ${viaOrca === fresh.length ? 'Orca' : `Orca ${viaOrca}, 직접 ${fresh.length - viaOrca}`}`)
+      }
+      for (const row of fresh) {
+        if (row.refreshedAt && row.refreshedAt > (refreshSeen.current.get(row.id) ?? 0)) {
+          refreshSeen.current.set(row.id, row.refreshedAt)
+          note('token', '갱신함', { email: row.email })
+        }
+        if (row.authFailed && !authSeen.current.has(row.id)) {
+          authSeen.current.add(row.id)
+          note('error', row.note ?? '자격증명 실패', { email: row.email })
+        } else if (!row.authFailed) authSeen.current.delete(row.id)
+      }
       if (keepAliveRef.current) {
         const now = Date.now()
         for (const row of fresh) {
           if (!needsOpening(row, now)) continue
-          if (now - (openedAt.current.get(row.id) ?? 0) < OPEN_COOLDOWN_MS) continue
-          openedAt.current.set(row.id, now)
+          // 쿨다운은 기록에서 읽는다. ref 로만 들면 앱을 다시 띄울 때마다 초기화돼
+          // 창이 이미 열렸는데도 요청을 또 보낸다.
+          const lastAt = logRef.current.find((entry) => entry.kind === 'cycle' && entry.email === row.email)?.at ?? 0
+          if (now - lastAt < OPEN_COOLDOWN_MS) continue
           const result = await openWindow(row.id)
           setLastOpen({ email: row.email, at: now, ...result })
+          if (result.refreshed) note('token', '사이클 전에 갱신함', { email: row.email })
+          note('cycle', result.ok ? '5h 창 열음' : `창 못 열음: ${result.reason}`,
+            { email: row.email, ok: result.ok })
           notify(result.ok ? `${row.email} 5h 창 열음` : `${row.email} 창 못 열음: ${result.reason}`)
         }
       }
@@ -337,6 +403,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
         }))
       }
     } catch (error) {
+      note('error', `조회 실패: ${error.message}`)
       notify(`조회 실패: ${error.message}`)
     } finally {
       running.current = false
@@ -394,9 +461,11 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       // 수동 전환도 쿨다운에 넣는다. 안 그러면 자동 전환이 곧바로 되돌린다.
       lastSwitchAt.current = Date.now()
       saveSettings({ lastSwitchAt: lastSwitchAt.current })
+      note('switch', '수동 전환', { email: row.email })
       notify(`${row.email} 로 전환`)
       poll({ force: true })
     } catch (error) {
+      note('error', `수동 전환 실패: ${error.message}`, { email: row.email })
       notify(`전환 실패: ${error.message}`)
     } finally {
       switching.current = false
@@ -442,10 +511,8 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     }
     else if (key === 'd') {
       setGraphMode((value) => {
-        // 사용량, 소비, 일정 순으로 돈다. 일정은 계정을 골라도 전체를 본다.
-        const next = value === 'level' ? 'rate' : value === 'rate' ? 'schedule' : 'level'
-        notify({ rate: '그래프: 시간당 소비', schedule: '그래프: 일주일 일정', level: '그래프: 사용량' }[next])
-        return next
+        const at = GRAPH_TABS.findIndex((tab) => tab.mode === value)
+        return GRAPH_TABS[(at + 1) % GRAPH_TABS.length].mode
       })
     }
     else if (key === 'q') exit()
@@ -660,13 +727,23 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
           paddingX={1}
           overflow="hidden"
         >
-          {graphMode === 'schedule'
+          <GraphTabs mode={graphMode} />
+          {graphMode === 'log'
+            ? (
+              <Log
+                entries={logEntries}
+                now={now}
+                height={layout.graphHeight - 1}
+                columns={columns - layout.panelWidth - 4}
+              />
+              )
+            : graphMode === 'schedule'
             ? (
               <Schedule
                 rows={claudeRows}
                 historyById={history}
                 now={now}
-                height={layout.graphHeight}
+                height={layout.graphHeight - 1}
                 columns={columns - layout.panelWidth - 4}
               />
               )
@@ -676,7 +753,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
                     row={current}
                     history={history[current.id] ?? []}
                     columns={columns - layout.panelWidth - 4}
-                    height={layout.graphHeight}
+                    height={layout.graphHeight - 1}
                     mode={graphMode}
                     showModelWindows={windowsVisible}
                     rangeMs={RANGES[rangeIndex].ms}
@@ -689,7 +766,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
                     accounts={claudeRows}
                     historyById={history}
                     columns={columns - layout.panelWidth - 4}
-                    height={layout.graphHeight}
+                    height={layout.graphHeight - 1}
                     mode={graphMode}
                     showModelWindows={windowsVisible}
                     rangeMs={RANGES[rangeIndex].ms}
