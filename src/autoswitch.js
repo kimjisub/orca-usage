@@ -49,6 +49,9 @@ export function decideSwitch(rows, tip, { activeId, lastSwitchAt = 0, now = Date
 
   const activeBadge = tip.badges?.[active.id]
   const targetBadge = tip.badges?.[target.id]
+  const activeScore = tip.scores?.[active.id]?.total ?? 0
+  const targetScore = tip.scores?.[target.id]?.total ?? 0
+  const gain = targetScore - activeScore
 
   // 막힘: 활성이 곧 벽에 부딪힌다. 이때만 여유 차이를 따진다. 나머지 둘은
   // 이유 자체가 뚜렷해서 몇 %p 차이인지가 판단을 바꾸지 않는다.
@@ -85,5 +88,16 @@ export function decideSwitch(rows, tip, { activeId, lastSwitchAt = 0, now = Date
     }
   }
 
-  return hold(`활성 ${Math.round(activeWorst)}%, 옮길 이유 없음`)
+  // 점수: 위 셋 중 무엇도 아니지만 갈 곳이 뚜렷하게 낫다. 두 계정이 엇비슷할
+  // 때 오가며 세션만 끊는 것을 막으려고 여유차만큼은 벌어져야 옮긴다.
+  if (gain >= tuning().switchMargin) {
+    return {
+      action: 'switch',
+      target,
+      why: '점수',
+      reason: `${Math.round(activeScore)} -> ${target.email} ${Math.round(targetScore)}`,
+    }
+  }
+
+  return hold(`활성 ${Math.round(activeScore)}점, 갈 곳 ${Math.round(targetScore)}점, 차이 ${Math.round(gain)} < ${tuning().switchMargin}`)
 }

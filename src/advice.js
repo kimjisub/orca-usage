@@ -94,6 +94,42 @@ function wastedIfIdle(remaining, msLeft, maxBurn) {
   return Math.max(0, remaining - reachable)
 }
 
+// 급함 1 은 리셋까지 최대 속도로 달려야 겨우 다 쓴다는 뜻이다. 그보다 급한 것은
+// 이미 다 못 쓰는 영역이고 그 몫은 소멸 지표가 잡으므로 여기서 끊는다.
+const URGENCY_FULL = 1
+
+/**
+ * 지금 붙기 좋은 정도를 하나의 점수로 낸다.
+ *
+ * 예전에는 소멸, 급함, 당장, 여력을 이 순서로 놓고 앞이 갈리면 뒤를 안 봤다.
+ * 그래서 1%p 가 버려질 판이라는 것만으로 다섯 시간에 20% 밖에 못 쓰는 계정이
+ * 뽑혔다. 네 지표를 0 부터 1 로 눕히고 가중치를 곱해 더하면 그런 일이 없고,
+ * 어느 지표가 얼마나 밀었는지도 숫자로 남아 화면에 그릴 수 있다.
+ *
+ * 가중치 합으로 나누므로 점수는 늘 0 부터 100 이다. 사람이 가중치를 바꿔도
+ * 눈금이 그대로다.
+ *
+ * @returns {{total: number, parts: {key: string, label: string, value: number}[]}}
+ */
+function scoreOf(entry) {
+  const weights = tuning()
+  const items = [
+    { key: 'waste', label: '소멸', weight: weights.weightWaste, norm: Math.min(1, entry.weeklyWaste / 100) },
+    { key: 'urgency', label: '급함', weight: weights.weightUrgency, norm: Math.min(1, entry.weeklyUrgency / URGENCY_FULL) },
+    { key: 'now', label: '당장', weight: weights.weightNow, norm: Math.min(1, entry.reachable / 100) },
+    { key: 'reserve', label: '여력', weight: weights.weightReserve, norm: Math.min(1, entry.reserve / 100) },
+  ]
+  const sum = items.reduce((total, item) => total + item.weight, 0)
+  if (sum <= 0) return { total: 0, parts: items.map((item) => ({ ...item, value: 0 })) }
+  const parts = items.map((item) => ({
+    key: item.key,
+    label: item.label,
+    weight: item.weight,
+    value: (item.weight * item.norm / sum) * 100,
+  }))
+  return { total: parts.reduce((total, part) => total + part.value, 0), parts }
+}
+
 /**
  * 계정마다 지금 상태와 남은 여력을 매긴다.
  *
@@ -152,7 +188,7 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
       // 지금 붙으면 다섯 시간 동안 얼마나 태울 수 있나.
       reachable: reachableIn(burst, shortResetIn),
     }
-  })
+  }).map((entry) => ({ ...entry, score: scoreOf(entry) }))
 }
 
 /** 왜 이 계정인지 한 줄로. 근거가 없으면 추천도 못 믿는다. */
@@ -181,32 +217,11 @@ export function advise(rows, historyById, now = Date.now()) {
   const open = scored.filter((entry) =>
     !entry.shortBlocked && !entry.weeklyBlocked && !entry.authFailed)
 
-  // 순서가 곧 이 도구의 판단이다. 주간이 먼저고 5시간 창이 나중이다.
-  //
-  // 1. 주간에서 확실히 버려질 양. 며칠을 기다려야 돌아오므로 되찾을 수 없다.
-  // 2. 주간을 리셋 전에 다 쓰지 못할 판인가. 남은 양만 보면 사흘 뒤 리셋과
-  //    엿새 뒤 리셋이 같아 보이는데, 시간으로 나누면 앞의 것이 두 배 급하다는
-  //    사실이 드러난다. 다만 실제로 낼 수 있는 속도로 다 쓸 수 있는 계정끼리는
-  //    여기서 가르지 않는다. 둘 다 넉넉하다는 뜻이라 순위의 근거가 못 된다.
-  // 3. 주간 사정이 비슷할 때에야 5시간 창을 본다. 그것도 지금 남은 양이 아니라
-  //    다섯 시간 동안 태울 수 있는 총량이다. 곧 리셋되는 계정은 남은 양이 적어도
-  //    잠시 뒤 쿼터가 통째로 새로 채워진다.
-  //
-  // 5시간 창을 주간보다 앞세우지 않는 이유는 하루에 네다섯 번 새로 채워지기
-  // 때문이다. 한 창을 놓치면 몇 시간 손해지만 주간을 놓치면 며칠이 간다.
-  // 소수점 아래 미세한 차이로 순위가 갈리면 안 된다. 리셋 시각이 몇 밀리초 다른
-  // 것만으로 다음 기준까지 못 가고 결판나 버린다.
-  const coarse = (value) => (Number.isFinite(value) ? Math.round(value * 100) / 100 : 1e9)
-  const byUrgency = (a, b) => (
-    (Math.round(b.weeklyWaste) - Math.round(a.weeklyWaste))
-    || (coarse(b.weeklyUrgency) - coarse(a.weeklyUrgency))
-    || (Math.round(b.reachable) - Math.round(a.reachable))
-    // 다섯 시간 동안 태울 수 있는 양이 같으면 주간 여력이 큰 쪽으로 간다.
-    // 5시간 창이 둘 다 비어 있을 때 이 자리가 실제로 순위를 가른다.
-    || (Math.round(b.reserve) - Math.round(a.reserve))
-  )
+  // 순위는 네 지표에 가중치를 곱해 더한 점수다. 무엇이 얼마나 밀었는지는
+  // score.parts 에 남아 화면에서 그대로 읽힌다. 같으면 주간 여력으로 가른다.
+  const byScore = (a, b) => (b.score.total - a.score.total) || (b.reserve - a.reserve)
 
-  const use = [...open].sort(byUrgency)[0] ?? null
+  const use = [...open].sort(byScore)[0] ?? null
   // 큰 작업은 5시간 창을 보지 않는다. 지금 막혀 있어도 몇 시간이면 풀리고,
   // 긴 작업에서 정작 발목을 잡는 것은 주간 여력이다.
   const heavy = [...scored]
@@ -239,6 +254,8 @@ export function advise(rows, historyById, now = Date.now()) {
 
   return {
     badges,
+    // 전환 판정과 화면이 같은 점수를 본다. 두 곳이 따로 계산하면 어긋난다.
+    scores: Object.fromEntries(scored.map((entry) => [entry.row.id, entry.score])),
     use,
     useReason: use ? reasonFor(use) : null,
     heavy,

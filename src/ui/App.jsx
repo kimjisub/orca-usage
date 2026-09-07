@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useApp, useInput } from 'ink'
 import { collectAccounts, collectAllAccounts } from '../accounts.js'
-import { advise } from '../advice.js'
+import { advise, scoreAccounts } from '../advice.js'
 import { decideSwitch } from '../autoswitch.js'
 import { RANGES } from '../chart.js'
 import { activeAccountIds, selectClaudeAccount } from '../orca-rpc.js'
@@ -21,6 +21,7 @@ import { Schedule } from './Schedule.jsx'
 import { Log } from './Log.jsx'
 import { Settings } from './Settings.jsx'
 import { Help } from './Help.jsx'
+import { Score } from './Score.jsx'
 import { log, loadLog } from '../log.js'
 import { needsOpening, openWindow } from '../keepalive.js'
 
@@ -35,6 +36,7 @@ const GRAPH_TABS = [
   { mode: 'level', label: '사용량' },
   { mode: 'rate', label: '소비' },
   { mode: 'schedule', label: '일정' },
+  { mode: 'score', label: '판정' },
   { mode: 'log', label: '기록' },
   { mode: 'settings', label: '설정' },
   { mode: 'help', label: '도움말' },
@@ -287,7 +289,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const windowsFit = screenRows >= TIGHT_ROWS
   // 기록은 선이 아니라 글이라 좁은 화면에서도 읽힌다. 그래프 폭 조건을 안 건다.
   const graphVisible = showGraph
-    && (graphMode === 'log' || graphMode === 'settings' || graphMode === 'help' || graphFits)
+    && (['log', 'score', 'settings', 'help'].includes(graphMode) || graphFits)
   const windowsVisible = showModelWindows && windowsFit
   const legendVisible = screenRows >= MIN_LEGEND_ROWS
   const adviceCompact = screenRows < TIGHT_ROWS
@@ -721,6 +723,10 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
 
   // 추천은 계정 목록의 배지와 아래 요약이 함께 쓴다. 한 번만 계산한다.
   const tip = useMemo(() => advise(claudeRows, history, now), [claudeRows, history, now])
+  // 판정 화면이 쓰는 지표. advise 와 같은 계산이라 화면과 판단이 어긋나지 않는다.
+  const scored = useMemo(
+    () => scoreAccounts(claudeRows, history, now).filter((entry) => entry.hasData),
+    [claudeRows, history, now])
   const current = selected >= 0 ? rows[selected] : null
   if (rows.length === 0) return <Text color="red">{'Orca 계정을 찾지 못했습니다.'}</Text>
 
@@ -815,7 +821,17 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
           <Hit id={TAB_HIT} onMeasure={onHit}>
             <GraphTabs mode={graphMode} />
           </Hit>
-          {graphMode === 'settings'
+          {graphMode === 'score'
+            ? (
+              <Score
+                scored={scored}
+                activeId={activeIds.claude}
+                useId={tip?.use?.row.id}
+                decision={decision}
+                height={layout.graphHeight - 1}
+              />
+              )
+            : graphMode === 'settings'
             ? <Settings values={tuned} selected={tuneAt} height={layout.graphHeight - 1} />
             : graphMode === 'help'
             ? <Help height={layout.graphHeight - 1} />
