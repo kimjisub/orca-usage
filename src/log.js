@@ -2,11 +2,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { STATE_DIR } from './paths.js'
 import { writeJsonAtomic } from './store.js'
+import { tuning } from './tuning.js'
 
 const LOG_PATH = path.join(STATE_DIR, 'log.json')
-// 화면에 담기는 양의 몇 배면 충분하다. 오래된 것은 왜 그랬는지 되짚을 때만 보는데,
-// 그때 필요한 것은 마지막 몇 백 줄이다.
-const KEEP = 500
+
 
 /**
  * 이 도구가 스스로 한 일의 기록.
@@ -28,7 +27,7 @@ function load() {
   if (entries) return entries
   try {
     const saved = JSON.parse(fs.readFileSync(LOG_PATH, 'utf8'))
-    entries = Array.isArray(saved) ? saved.slice(-KEEP) : []
+    entries = Array.isArray(saved) ? saved.slice(-tuning().logKeep) : []
   } catch {
     entries = []
   }
@@ -58,7 +57,8 @@ function flush() {
 export function log(kind, text, detail = {}) {
   const list = load()
   list.push({ at: Date.now(), kind, text, ...detail })
-  if (list.length > KEEP) list.splice(0, list.length - KEEP)
+  const keep = tuning().logKeep
+  if (list.length > keep) list.splice(0, list.length - keep)
   flush()
   return list
 }

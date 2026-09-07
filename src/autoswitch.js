@@ -1,10 +1,4 @@
-// 활성 계정이 이 위로 차면 갈아탄다. 90% 는 이미 막힌 뒤라 그 전에 옮긴다.
-export const SWITCH_AT = 80
-// 한 번 옮기고 이만큼은 다시 옮기지 않는다. 두 계정이 임계 언저리에 있으면
-// 조회할 때마다 오가면서 세션만 계속 끊긴다.
-export const COOLDOWN_MS = 10 * 60_000
-// 곧 막혀서 옮길 때만 요구하는 여유 차이. 79% 에서 78% 로 가는 것은 의미가 없다.
-const MARGIN = 15
+import { tuning } from './tuning.js'
 
 // 막힘을 재는 창은 5h 와 7d 다. advice.js 가 배지를 붙일 때 보는 것과 같다.
 // 모델별 창까지 넣으면 화면에 빨간 막대도 배지도 없는데 전환이 일어나고,
@@ -46,7 +40,7 @@ export function decideSwitch(rows, tip, { activeId, lastSwitchAt = 0, now = Date
   if (!target) return hold('추천 계정을 찾지 못함')
   if (target.id === active.id) return hold('이미 추천 계정에 붙어 있음')
 
-  const cooling = COOLDOWN_MS - (now - lastSwitchAt)
+  const cooling = tuning().switchCooldownMs - (now - lastSwitchAt)
   if (cooling > 0) return hold(`쿨다운 ${Math.ceil(cooling / 60_000)}분`)
 
   const activeWorst = worstOf(active)
@@ -58,8 +52,8 @@ export function decideSwitch(rows, tip, { activeId, lastSwitchAt = 0, now = Date
 
   // 막힘: 활성이 곧 벽에 부딪힌다. 이때만 여유 차이를 따진다. 나머지 둘은
   // 이유 자체가 뚜렷해서 몇 %p 차이인지가 판단을 바꾸지 않는다.
-  if (activeWorst >= SWITCH_AT) {
-    if (activeWorst - targetWorst < MARGIN) {
+  if (activeWorst >= tuning().switchAt) {
+    if (activeWorst - targetWorst < tuning().switchMargin) {
       return hold(`활성 ${Math.round(activeWorst)}%, 갈 곳도 ${Math.round(targetWorst)}%`)
     }
     return {

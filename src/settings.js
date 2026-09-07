@@ -14,7 +14,7 @@ const SETTINGS_PATH = path.join(STATE_DIR, 'settings.json')
  * 앱을 껐다 켠 직후 쿨다운이 풀린 것처럼 보여 방금 옮긴 계정에서 또 옮긴다.
  */
 // 그래프 모드. 화면이 d 로 도는 순서와 같다.
-const GRAPH_MODES = new Set(['level', 'rate', 'schedule'])
+const GRAPH_MODES = new Set(['level', 'rate', 'schedule', 'log', 'settings', 'help'])
 
 const DEFAULTS = {
   graphMode: 'level',
@@ -23,6 +23,7 @@ const DEFAULTS = {
   showGraph: true,
   autoSwitch: false,
   keepAlive: false,
+  tuning: {},
   selectedId: null,
   lastSwitchAt: 0,
 }

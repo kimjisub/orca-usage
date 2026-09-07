@@ -6,9 +6,6 @@ const MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
 // 창을 여는 데는 요청 하나면 된다. 가장 싼 모델에 토큰 하나. 실측 2026-09-07:
 // 사용률이 정수 % 라 한 번은 0%p 로 보인다.
 const OPENER_MODEL = 'claude-haiku-4-5-20251001'
-// 같은 계정에 이 안에서는 다시 보내지 않는다. Orca 가 갱신을 미루면 창이 열렸는데도
-// 한 바퀴 더 닫힌 것으로 보인다.
-export const OPEN_COOLDOWN_MS = 10 * 60_000
 const HTTP_TIMEOUT_MS = 15_000
 
 /**

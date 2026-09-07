@@ -1,4 +1,5 @@
-import { WASTE_ALERT, WEEKLY_MAX_BURN, scoreAccounts } from './advice.js'
+import { WEEKLY_MAX_BURN, scoreAccounts } from './advice.js'
+import { tuning } from './tuning.js'
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 24 * HOUR_MS
@@ -24,14 +25,14 @@ export function availableAt(entry, t, now) {
 /**
  * 시각 t 가 이 계정을 태워야 할 때인가.
  *
- * 리셋까지 24시간 안이고, 그때까지 관측된 최대 속도로 태워도 WASTE_ALERT 넘게
+ * 리셋까지 24시간 안이고, 그때까지 최대 속도로 태워도 소진 권장 문턱을 넘게
  * 남을 때다. 화면 배지의 소진 권장과 같은 기준이라 둘이 어긋나지 않는다.
  */
 export function spurtAt(entry, t, now, maxBurn) {
   if (entry.weeklyResetIn == null) return false
   const weeklyResetAt = now + entry.weeklyResetIn
   if (t >= weeklyResetAt || weeklyResetAt - t > DAY_MS) return false
-  return availableAt(entry, t, now) - maxBurn * ((weeklyResetAt - t) / HOUR_MS) > WASTE_ALERT
+  return availableAt(entry, t, now) - maxBurn * ((weeklyResetAt - t) / HOUR_MS) > tuning().wasteAlert
 }
 
 /** 해당 날짜의 0시. 한 칸이 한 시간이라 그 날의 24칸을 여기서부터 센다. */

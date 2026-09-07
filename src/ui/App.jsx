@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, Text, useApp, useInput } from 'ink'
 import { collectAccounts, collectAllAccounts } from '../accounts.js'
 import { advise } from '../advice.js'
-import { SWITCH_AT, decideSwitch } from '../autoswitch.js'
+import { decideSwitch } from '../autoswitch.js'
 import { RANGES } from '../chart.js'
 import { activeAccountIds, selectClaudeAccount } from '../orca-rpc.js'
 import { selectCodexAccount } from '../orca-limits.js'
 import { loadSettings, saveSettings } from '../settings.js'
+import { TUNABLES, TUNING_DEFAULTS, applyTuning, formatTuning, tuning } from '../tuning.js'
 import { cellWidth, shortSpan, visibleWindows } from '../format.js'
 import { useFullscreen } from '../fullscreen.js'
 import { isMouseSequence, parseMouseClick, useMouseReporting } from '../mouse.js'
@@ -18,8 +19,10 @@ import { AUTO_BLOCK_ROWS, Advice, AutoBlock, Graph, OverviewGraph, adviceHeight 
 import { Hit, HitRoot } from './Hit.jsx'
 import { Schedule } from './Schedule.jsx'
 import { Log } from './Log.jsx'
+import { Settings } from './Settings.jsx'
+import { Help } from './Help.jsx'
 import { log, loadLog } from '../log.js'
-import { OPEN_COOLDOWN_MS, needsOpening, openWindow } from '../keepalive.js'
+import { needsOpening, openWindow } from '../keepalive.js'
 
 const HEADER_ROWS = 2
 // 활성 계정만 따로 확인하는 주기. 사용량 조회와 달리 소켓 한 번이라 가볍고,
@@ -33,6 +36,8 @@ const GRAPH_TABS = [
   { mode: 'rate', label: '소비' },
   { mode: 'schedule', label: '일정' },
   { mode: 'log', label: '기록' },
+  { mode: 'settings', label: '설정' },
+  { mode: 'help', label: '도움말' },
 ]
 // 그래프 상자 안쪽이 이보다 좁으면 그래프를 접고 목록이 폭을 다 쓴다. 눈금
 // 여섯 칸을 빼고 서른 칸은 있어야 선이 형태를 갖춘다. 화면 폭이 아니라 목록이
@@ -54,6 +59,8 @@ const ACTIONS = [
   { key: 'w', label: '기간' },
   { key: 'a', label: '자동' },
   { key: 'o', label: '사이클' },
+  { key: 's', label: '설정' },
+  { key: '?', label: '도움말' },
   { key: 'enter', label: '전환' },
   { key: 'g', label: '그래프' },
   { key: 'q', label: '종료' },
@@ -226,6 +233,10 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   }
   // 마지막으로 창을 연 결과. 자동 블록이 보인다.
   const [logEntries, setLogEntries] = useState(() => loadLog())
+  // 설정 값과 지금 고른 항목. 값은 tuning 이 들고 있고 여기서는 화면을 다시 그리게
+  // 하려고 사본을 둔다.
+  const [tuned, setTuned] = useState(() => applyTuning(saved.tuning))
+  const [tuneAt, setTuneAt] = useState(0)
   // 폴링 안에서 읽으므로 ref 로도 들고 있는다. 의존성에 넣으면 기록이 쌓일 때마다
   // 폴링 타이머가 다시 걸린다.
   const logRef = useRef(logEntries)
@@ -275,7 +286,8 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const graphFits = columns - listWidth - 4 >= MIN_GRAPH_WIDTH
   const windowsFit = screenRows >= TIGHT_ROWS
   // 기록은 선이 아니라 글이라 좁은 화면에서도 읽힌다. 그래프 폭 조건을 안 건다.
-  const graphVisible = showGraph && (graphMode === 'log' || graphFits)
+  const graphVisible = showGraph
+    && (graphMode === 'log' || graphMode === 'settings' || graphMode === 'help' || graphFits)
   const windowsVisible = showModelWindows && windowsFit
   const legendVisible = screenRows >= MIN_LEGEND_ROWS
   const adviceCompact = screenRows < TIGHT_ROWS
@@ -333,9 +345,10 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       showGraph,
       autoSwitch,
       keepAlive,
+      tuning: tuned,
       selectedId: selected >= 0 ? (rows[selected]?.id ?? null) : null,
     })
-  }, [graphMode, rangeIndex, showModelWindows, showGraph, autoSwitch, keepAlive, selected, rows])
+  }, [graphMode, rangeIndex, showModelWindows, showGraph, autoSwitch, keepAlive, tuned, selected, rows])
 
   // poll 안에서 읽으므로 ref 로 둔다. 상태를 의존성에 넣으면 껐다 켤 때마다
   // 폴링 타이머가 통째로 다시 걸린다.
@@ -415,7 +428,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
           // 쿨다운은 기록에서 읽는다. ref 로만 들면 앱을 다시 띄울 때마다 초기화돼
           // 창이 이미 열렸는데도 요청을 또 보낸다.
           const lastAt = logRef.current.find((entry) => entry.kind === 'cycle' && entry.email === row.email)?.at ?? 0
-          if (now - lastAt < OPEN_COOLDOWN_MS) continue
+          if (now - lastAt < tuning().openCooldownMs) continue
           const result = await openWindow(row.id)
           if (result.refreshed) note('token', '사이클 전에 갱신함', { email: row.email })
           note('cycle', result.ok ? '5h 창 열음' : `창 못 열음: ${result.reason}`,
@@ -501,6 +514,16 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     }
   }, [rows, selected, activeIds, notify, poll])
 
+  /** 고른 항목의 값을 옮긴다. 범위 밖은 applyTuning 이 잘라 준다. */
+  const nudge = useCallback((direction) => {
+    const item = TUNABLES[tuneAt]
+    if (!item) return
+    const next = direction === 0
+      ? TUNING_DEFAULTS[item.key]
+      : tuning()[item.key] + item.step * direction
+    setTuned({ ...applyTuning({ [item.key]: next }) })
+  }, [tuneAt])
+
   const runAction = useCallback((key) => {
     if (key === 'r') doRefresh()
     else if (key === 't') doToken()
@@ -510,6 +533,8 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       if (!fit.current.graph) notify('화면이 좁아 그래프를 접었습니다')
       else setShowGraph((value) => !value)
     }
+    else if (key === 's') setGraphMode('settings')
+    else if (key === '?') setGraphMode('help')
     else if (key === 'o') {
       setKeepAlive((value) => {
         notify(value ? '사이클 자동트리거 끔' : '사이클 자동트리거 켬 (닫힌 5h 창을 요청 하나로 엽니다)')
@@ -518,7 +543,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     }
     else if (key === 'a') {
       setAutoSwitch((value) => {
-        notify(value ? '자동 전환 끔' : `자동 전환 켬 (활성이 ${SWITCH_AT}% 넘으면 갈아탐)`)
+        notify(value ? '자동 전환 끔' : `자동 전환 켬 (활성이 ${tuning().switchAt}% 넘으면 갈아탐)`)
         return !value
       })
     }
@@ -558,6 +583,14 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     }
     if (key.escape || (key.ctrl && input === 'c')) return exit()
     if (key.return) return switchToSelected()
+    // 설정 화면에서는 위아래가 항목을, 좌우가 값을 옮긴다. 계정 목록은 그동안
+    // 그대로 있고 화살표만 이쪽으로 간다.
+    if (graphMode === 'settings') {
+      if (key.downArrow) return setTuneAt((at) => Math.min(TUNABLES.length - 1, at + 1))
+      if (key.upArrow) return setTuneAt((at) => Math.max(0, at - 1))
+      if (key.leftArrow) return nudge(-1)
+      if (key.rightArrow) return nudge(1)
+    }
     if (key.downArrow) return setSelected((i) => Math.min(rows.length - 1, i + 1))
     if (key.upArrow) return setSelected((i) => Math.max(-1, i - 1))
     // 빠른 연타나 붙여넣기는 여러 글자가 한 번에 들어온다. 글자마다 처리해야
@@ -566,13 +599,20 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       // 빠른 연타나 붙여넣기로 여러 글자가 한 입력에 실려 오면 ink 가 특수키
       // 판정을 하지 않는다. 개행도 여기서 직접 받아야 엔터가 묻히지 않는다.
       if (char === '\r' || char === '\n') switchToSelected()
+      else if (graphMode === 'settings' && 'jkhl0'.includes(char)) {
+        if (char === 'j') setTuneAt((at) => Math.min(TUNABLES.length - 1, at + 1))
+        else if (char === 'k') setTuneAt((at) => Math.max(0, at - 1))
+        else if (char === 'h') nudge(-1)
+        else if (char === 'l') nudge(1)
+        else nudge(0)
+      }
       else if (char === 'j') setSelected((i) => Math.min(rows.length - 1, i + 1))
       else if (char === 'k') setSelected((i) => Math.max(-1, i - 1))
       else if (char === '0') setSelected(-1)
       else if (char >= '1' && char <= '9') {
         const index = Number(char) - 1
         if (index < rows.length) setSelected(index)
-      } else if ('rtdfgqwao'.includes(char)) runAction(char)
+      } else if ('rtdfgqwaos?'.includes(char)) runAction(char)
     }
   })
 
@@ -775,7 +815,11 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
           <Hit id={TAB_HIT} onMeasure={onHit}>
             <GraphTabs mode={graphMode} />
           </Hit>
-          {graphMode === 'log'
+          {graphMode === 'settings'
+            ? <Settings values={tuned} selected={tuneAt} height={layout.graphHeight - 1} />
+            : graphMode === 'help'
+            ? <Help height={layout.graphHeight - 1} />
+            : graphMode === 'log'
             ? (
               <Log
                 entries={logEntries}

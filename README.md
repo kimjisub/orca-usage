@@ -72,6 +72,7 @@ orca-usage --graph block       draw level lines with box characters instead of b
 | --- | --- | --- | --- |
 | `r` | Refresh all | `t` | Reissue the selected account's token |
 | `d` | Cycle the right panel (tabs are clickable too) | `f` | Show or hide per-model windows |
+| `s` | Settings | `?` | Help |
 | `w` | Cycle the range (3h to 1M) | `a` | Toggle automatic switching |
 | `g` | Collapse or expand the graph | `o` | Toggle cycle auto-trigger |
 | `q` | Quit | | |
@@ -96,6 +97,12 @@ Arrow keys or `j` / `k` move the selection. Clicking a row works too.
 Off by default; `a` turns it on, and it only moves between Claude accounts. When the tightest window on the active account passes 80% and another account is more than 15 percentage points freer, orca-usage asks the Orca runtime to switch. After a switch it waits 10 minutes before switching again.
 
 Terminals that are already open keep running on the old account. The new one applies to sessions you open afterwards.
+
+## Settings
+
+`s` opens a panel for the judgement thresholds: poll interval, the switch trigger and its margin and cooldown, what counts as blocked or worth sparing or worth spending, the cycle cooldown, and how many log entries to keep. Up and down pick a row, left and right move the value, `0` restores that row's default. Changed values are yellow and persist.
+
+Measured facts and courtesies to the server are not in there. That filling a 5h window costs 20 points of the weekly one, the gap between requests, the backoff, the OAuth endpoints: none of those are a matter of preference.
 
 ## Cycle auto-trigger
 

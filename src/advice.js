@@ -1,11 +1,9 @@
 import { msUntil } from './format.js'
+import { tuning } from './tuning.js'
 
-// 이 위로는 곧 막히는 것으로 본다.
-const BLOCKED_AT = 90
-// 주간을 이만큼 쓴 계정은 아껴 둘 대상으로 알린다.
-const SPARE_AT = 50
-// 이만큼 넘게 버려질 판이면 소멸 임박으로 본다. 일정 화면도 이 문턱을 쓴다.
-export const WASTE_ALERT = 15
+
+
+
 // 5시간 창은 꽉 채우는 일이 드물어 늘 얼마쯤 버려진다. 상시로 뜨면 신호가
 // 안 되므로 정렬에는 쓰되 이유로 내세우는 문턱은 훨씬 높게 잡는다.
 const SHORT_WASTE_ALERT = 45
@@ -132,8 +130,8 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
       burst,
       // 며칠을 좌우하는 진짜 여력.
       reserve,
-      shortBlocked: shortPct >= BLOCKED_AT,
-      weeklyBlocked: weeklyPct >= BLOCKED_AT,
+      shortBlocked: shortPct >= tuning().blockedAt,
+      weeklyBlocked: weeklyPct >= tuning().blockedAt,
       shortResetIn,
       weeklyResetIn,
       burn,
@@ -159,7 +157,7 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
 
 /** 왜 이 계정인지 한 줄로. 근거가 없으면 추천도 못 믿는다. */
 function reasonFor(entry) {
-  if (entry.weeklyWaste >= WASTE_ALERT) {
+  if (entry.weeklyWaste >= tuning().wasteAlert) {
     return `주간 ${Math.round(entry.weeklyWaste)}% 소멸 임박`
   }
   if (entry.shortWaste >= SHORT_WASTE_ALERT) {
@@ -220,8 +218,8 @@ export function advise(rows, historyById, now = Date.now()) {
   // weeklyUrgency 다. 리셋까지 부지런히 태워야 다 쓰는 계정을 아끼라고 말하면
   // 안 쓴 몫이 그대로 사라진다.
   const avoid = [...scored]
-    .filter((entry) => entry.weeklyPct >= SPARE_AT
-      && entry.weeklyWaste < WASTE_ALERT
+    .filter((entry) => entry.weeklyPct >= tuning().spareAt
+      && entry.weeklyWaste < tuning().wasteAlert
       && entry.weeklyUrgency === 0)
     .sort((a, b) => b.weeklyPct - a.weeklyPct)[0] ?? null
 
@@ -230,7 +228,7 @@ export function advise(rows, historyById, now = Date.now()) {
   const badges = {}
   for (const entry of scored) {
     if (entry.shortBlocked || entry.weeklyBlocked) badges[entry.row.id] = 'blocked'
-    else if (entry.weeklyWaste >= WASTE_ALERT) badges[entry.row.id] = 'spurt'
+    else if (entry.weeklyWaste >= tuning().wasteAlert) badges[entry.row.id] = 'spurt'
   }
   if (use && !badges[use.row.id]) badges[use.row.id] = 'use'
   if (avoid && !badges[avoid.row.id]) badges[avoid.row.id] = 'spare'
