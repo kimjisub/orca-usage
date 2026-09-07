@@ -71,7 +71,7 @@ orca-usage --graph block       draw level lines with box characters instead of b
 | Key | Action | Key | Action |
 | --- | --- | --- | --- |
 | `r` | Refresh all | `t` | Reissue the selected account's token |
-| `d` | Cycle the right panel | `f` | Show or hide per-model windows |
+| `d` | Cycle the right panel (tabs are clickable too) | `f` | Show or hide per-model windows |
 | `w` | Cycle the range (3h to 1M) | `a` | Toggle automatic switching |
 | `g` | Collapse or expand the graph | `o` | Toggle cycle auto-trigger |
 | `q` | Quit | | |

@@ -205,73 +205,28 @@ export function Advice({ tip, compact = false }) {
 
 /** 자동 전환이 지금 무엇을 보고 있는지. 켜져 있어도 대개는 대기 상태다. */
 /** 자동 블록이 차지하는 줄 수. 목록 예산을 잴 때 렌더와 같은 값을 쓴다. */
-export const autoBlockHeight = (compact) => (compact ? 1 : 4)
-
-function AutoLine({ label, on, text, color }) {
-  return (
-    <Box>
-      <Box width={11} flexShrink={0}>
-        <Text color={on ? 'green' : 'gray'}>{label}</Text>
-      </Box>
-      <Text color={color ?? (on ? 'white' : 'gray')} wrap="truncate">{text}</Text>
-    </Box>
-  )
-}
+export const AUTO_BLOCK_ROWS = 1
 
 /**
- * 이 도구가 스스로 하는 일 네 가지와 각각 마지막에 한 일.
+ * 이 도구가 스스로 하는 일의 현재 상태 한 줄.
  *
- * 머리글의 표시 하나와 흩어진 알림으로는 무엇이 돌고 있는지 모아 볼 수 없다.
- * 사람이 켜는 둘(사이클, 전환)은 켜짐과 꺼짐을, 늘 도는 둘(조회, 토큰 갱신)은
- * 마지막 시각을 보인다. 활성 계정 확인은 5초마다 늘 돌아 적을 것이 없다.
+ * 종류마다 마지막에 한 일까지 적었더니 네 줄이 되었고, 그중 둘은 켜는 법을
+ * 알려주는 안내문이라 자리만 먹었다. 무엇이 켜져 있고 마지막 조회가 언제인지만
+ * 남긴다. 무슨 일이 있었는지는 기록 탭이 훨씬 자세히 보여준다.
  */
-export function AutoBlock({ rows, lastOpen, keepAlive, autoSwitch, decision, now, compact = false }) {
+export function AutoBlock({ rows, keepAlive, autoSwitch, failures, now }) {
   const fetchedAt = Math.max(0, ...rows.map((row) => row.fetchedAt ?? 0))
-  const viaOrca = rows.some((row) => row.source === 'orca')
-  const fetched = fetchedAt
-    ? `${shortSpan(now - fetchedAt)} 전, ${viaOrca ? 'Orca' : '직접'}`
-    : '아직 없음'
-
-  const refreshed = rows
-    .filter((row) => row.refreshedAt)
-    .sort((a, b) => b.refreshedAt - a.refreshedAt)[0]
-  const refreshedText = lastOpen?.refreshed && (!refreshed || lastOpen.at > refreshed.refreshedAt)
-    ? `${lastOpen.email} ${shortSpan(now - lastOpen.at)} 전`
-    : refreshed
-      ? `${refreshed.email} ${shortSpan(now - refreshed.refreshedAt)} 전`
-      : '최근 없음'
-
-  const cycle = !keepAlive
-    ? { text: '꺼짐  o 로 켭니다', color: 'gray' }
-    : !lastOpen
-      ? { text: '켜짐  닫힌 창이 보이면 요청 하나를 보냅니다', color: 'gray' }
-      : lastOpen.ok
-        ? { text: `${lastOpen.email} 5h 열음 ${shortSpan(now - lastOpen.at)} 전`, color: 'green' }
-        : { text: `${lastOpen.email} 실패: ${lastOpen.reason}`, color: 'red' }
-
-  const swap = !autoSwitch
-    ? { text: '꺼짐  a 로 켭니다', color: 'gray' }
-    : decision?.action === 'switch'
-      ? { text: `전환[${decision.why}] ${decision.reason}`, color: 'green' }
-      : { text: decision?.reason ?? '판단 중', color: 'gray' }
-
-  if (compact) {
-    return (
-      <Text wrap="truncate">
-        <Text color="gray">{'자동  '}</Text>
-        <Text color="white">{`조회 ${fetched}`}</Text>
-        <Text color={keepAlive ? 'green' : 'gray'}>{`  사이클 ${keepAlive ? '켜짐' : '꺼짐'}`}</Text>
-        <Text color={autoSwitch ? 'green' : 'gray'}>{`  전환 ${autoSwitch ? '켜짐' : '꺼짐'}`}</Text>
-      </Text>
-    )
-  }
+  const viaOrca = rows.every((row) => row.source === 'orca')
   return (
-    <>
-      <AutoLine label="조회" on text={fetched} />
-      <AutoLine label="토큰 갱신" on text={refreshedText} />
-      <AutoLine label="사이클" on={keepAlive} text={cycle.text} color={cycle.color} />
-      <AutoLine label="전환" on={autoSwitch} text={swap.text} color={swap.color} />
-    </>
+    <Text wrap="truncate">
+      <Text color="gray">{'자동  '}</Text>
+      <Text color="white">
+        {fetchedAt ? `조회 ${shortSpan(now - fetchedAt)} 전${viaOrca ? ', Orca' : ''}` : '조회 대기'}
+      </Text>
+      <Text color={keepAlive ? 'green' : 'gray'}>{`  사이클 ${keepAlive ? '켜짐' : '꺼짐'}`}</Text>
+      <Text color={autoSwitch ? 'green' : 'gray'}>{`  전환 ${autoSwitch ? '켜짐' : '꺼짐'}`}</Text>
+      {failures ? <Text color="red">{`  실패 ${failures}건`}</Text> : null}
+    </Text>
   )
 }
 

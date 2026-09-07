@@ -119,3 +119,14 @@ export function visibleWindows(windows, showModelWindows) {
   if (!windows) return []
   return showModelWindows ? windows : windows.filter((w) => !isModelWindow(w.label))
 }
+
+// 한글과 CJK 기호는 터미널에서 두 칸을 쓴다. 열 위치를 세려면 글자 수가 아니라
+// 이 폭으로 세야 한다.
+const WIDE = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/
+
+/** 이 글자열이 터미널에서 차지하는 칸 수. */
+export function cellWidth(text) {
+  let width = 0
+  for (const char of text) width += WIDE.test(char) ? 2 : 1
+  return width
+}

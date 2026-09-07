@@ -7,14 +7,14 @@ import { RANGES } from '../chart.js'
 import { activeAccountIds, selectClaudeAccount } from '../orca-rpc.js'
 import { selectCodexAccount } from '../orca-limits.js'
 import { loadSettings, saveSettings } from '../settings.js'
-import { shortSpan, visibleWindows } from '../format.js'
+import { cellWidth, shortSpan, visibleWindows } from '../format.js'
 import { useFullscreen } from '../fullscreen.js'
 import { isMouseSequence, parseMouseClick, useMouseReporting } from '../mouse.js'
 import { pollOnce, rowsFromCache } from '../poller.js'
 import { loadHistory } from '../store.js'
 import { ACTIVE_MARK, AccountBlock, BADGES, blockHeight } from './AccountBlock.jsx'
 import { TotalBars, totalBarsHeight } from './TotalBars.jsx'
-import { Advice, AutoBlock, Graph, OverviewGraph, adviceHeight, autoBlockHeight } from './Graph.jsx'
+import { AUTO_BLOCK_ROWS, Advice, AutoBlock, Graph, OverviewGraph, adviceHeight } from './Graph.jsx'
 import { Hit, HitRoot } from './Hit.jsx'
 import { Schedule } from './Schedule.jsx'
 import { Log } from './Log.jsx'
@@ -85,13 +85,6 @@ function Header({ nextPollAt, busy, now, message, autoSwitch, direct }) {
 
 // 어떤 표시가 있고 무슨 색인지만 알린다. 글자가 곧 뜻이라 부연을 붙이면 한 줄을
 // 넘겨 통째로 잘린다. 자세한 설명은 --help 에 있다.
-const BADGE_LEGEND = [
-  { text: `${ACTIVE_MARK} 활성`, color: 'yellow' },
-  BADGES.use,
-  BADGES.spurt,
-  BADGES.spare,
-  BADGES.blocked,
-]
 
 function ActionBar() {
   return (
@@ -107,11 +100,33 @@ function ActionBar() {
   )
 }
 
-/** 오른쪽 패널의 탭. 무엇을 볼 수 있고 지금 어디인지 한 줄로 보인다. */
+// 탭 줄의 클릭 좌표를 재는 자리. 계정 번호와 안 겹치는 값이면 된다.
+const TAB_HIT = -2
+
+// 탭 줄의 머리. 여기부터 탭이 늘어선다.
+const TAB_LEAD = ' d '
+
+/**
+ * 탭이 차지하는 열 범위. 클릭한 자리가 어느 탭인지 여기서 가른다.
+ *
+ * 고른 탭은 대괄호, 나머지는 공백이라 폭이 같다. 그래서 무엇을 고르든 자리가
+ * 움직이지 않고, 렌더와 이 계산이 어긋날 일도 없다.
+ */
+const TAB_RANGES = (() => {
+  let at = cellWidth(TAB_LEAD)
+  return GRAPH_TABS.map((tab) => {
+    const width = cellWidth(tab.label) + 3
+    const range = { mode: tab.mode, start: at, end: at + width }
+    at += width
+    return range
+  })
+})()
+
+/** 오른쪽 패널의 탭. 무엇을 볼 수 있고 지금 어디인지 한 줄로 보인다. 눌러도 바뀐다. */
 function GraphTabs({ mode }) {
   return (
     <Text wrap="truncate">
-      <Text color="gray">{' d '}</Text>
+      <Text color="gray">{TAB_LEAD}</Text>
       {GRAPH_TABS.map((tab) => (
         <Text key={tab.mode} color={tab.mode === mode ? 'cyan' : 'gray'} bold={tab.mode === mode}>
           {tab.mode === mode ? ` [${tab.label}]` : `  ${tab.label} `}
@@ -121,10 +136,19 @@ function GraphTabs({ mode }) {
   )
 }
 
-function BadgeLegend() {
+/**
+ * 범례. 지금 화면에 붙어 있는 배지만 적는다. 다섯을 늘 늘어놓으면 한 줄이
+ * 통째로 차는데, 그 대부분은 지금 화면에 없는 것의 설명이다.
+ */
+function BadgeLegend({ badges, hasActive }) {
+  const shown = [
+    ...(hasActive ? [{ text: `${ACTIVE_MARK} 활성`, color: 'yellow' }] : []),
+    ...Object.keys(BADGES).filter((key) => badges.has(key)).map((key) => BADGES[key]),
+  ]
+  if (shown.length === 0) return null
   return (
     <Text wrap="truncate">
-      {BADGE_LEGEND.map((badge, index) => (
+      {shown.map((badge, index) => (
         <Text key={badge.text} color={badge.color} bold>
           {index ? `  ${badge.text}` : badge.text}
         </Text>
@@ -201,7 +225,6 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     authSeen.current = new Set(seeded.filter((row) => row.authFailed).map((row) => row.id))
   }
   // 마지막으로 창을 연 결과. 자동 블록이 보인다.
-  const [lastOpen, setLastOpen] = useState(null)
   const [logEntries, setLogEntries] = useState(() => loadLog())
   // 폴링 안에서 읽으므로 ref 로도 들고 있는다. 의존성에 넣으면 기록이 쌓일 때마다
   // 폴링 타이머가 다시 걸린다.
@@ -218,6 +241,13 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const [message, setMessage] = useState(null)
   const [now, setNow] = useState(Date.now())
   const [nextPollAt, setNextPollAt] = useState(Date.now() + intervalMs)
+  // 마지막 한 시간의 실패. 자동 블록이 이것만 알리고 자세한 것은 기록 탭이 맡는다.
+  const recentFailures = useMemo(() => {
+    const since = now - 3_600_000
+    return logEntries.filter((entry) => entry.at >= since
+      && (entry.kind === 'error' || entry.ok === false)).length
+  }, [logEntries, now])
+
 
   // 왼쪽 폭은 내용이 정한다. 비율로 잡으면 좁은 터미널에서 이름이 잘리고 넓은
   // 터미널에서는 빈 자리가 남는다. 오른쪽 그래프가 나머지를 다 쓴다.
@@ -387,7 +417,6 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
           const lastAt = logRef.current.find((entry) => entry.kind === 'cycle' && entry.email === row.email)?.at ?? 0
           if (now - lastAt < OPEN_COOLDOWN_MS) continue
           const result = await openWindow(row.id)
-          setLastOpen({ email: row.email, at: now, ...result })
           if (result.refreshed) note('token', '사이클 전에 갱신함', { email: row.email })
           note('cycle', result.ok ? '5h 창 열음' : `창 못 열음: ${result.reason}`,
             { email: row.email, ok: result.ok })
@@ -598,7 +627,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     }
     const budget = layout.panelHeight - 2
       - totalBarsHeight(claudeRows, windowsVisible)
-      - adviceHeight(adviceCompact) - autoBlockHeight(adviceCompact)
+      - adviceHeight(adviceCompact) - AUTO_BLOCK_ROWS
       - (legendVisible ? LEGEND_ROWS : 0)
     if (rowsIn(0, count) <= budget) {
       viewStart.current = 0
@@ -624,13 +653,23 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   }, [rows, selected, claudeRows, windowsVisible, legendVisible, adviceCompact, layout.panelHeight])
 
   const onClick = useCallback((row, column) => {
-    if (column > layout.panelWidth) return
     // 마우스는 1 부터 세고 배치 좌표는 0 부터 센다.
     const y = row - 1 - columnTop.current
     // ink 의 overflow 는 그리기만 자르고 배치는 그대로라, 상자 밖으로 밀린 블록도
     // 좌표를 갖는다. 아래 테두리와 액션 바를 눌러 안 보이는 계정이 잡히면 안 된다.
     if (y >= layout.panelHeight - 1) return
+    if (column > layout.panelWidth) {
+      // 오른쪽 상자의 탭 줄. 자리는 재 둔 것을 쓴다. 테두리와 패딩을 세어 맞추면
+      // 상자 모양이 바뀔 때마다 어긋난다.
+      const tabs = hits.current.get(TAB_HIT)
+      if (!tabs || y < tabs.top || y >= tabs.top + tabs.height) return
+      const at = column - 1 - (layout.panelWidth + 2)
+      const tab = TAB_RANGES.find((range) => at >= range.start && at < range.end)
+      if (tab) setGraphMode(tab.mode)
+      return
+    }
     for (const [id, box] of hits.current) {
+      if (id === TAB_HIT) continue
       if (y >= box.top && y < box.top + box.height) {
         setSelected(() => id)
         return
@@ -704,15 +743,21 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
             <Advice tip={tip} compact={adviceCompact} />
             <AutoBlock
               rows={claudeRows}
-              lastOpen={lastOpen}
               keepAlive={keepAlive}
               autoSwitch={autoSwitch}
-              decision={decision}
+              failures={recentFailures}
               now={now}
-              compact={adviceCompact}
             />
             {legendVisible
-              ? <><Text> </Text><BadgeLegend /></>
+              ? (
+                <>
+                  <Text> </Text>
+                  <BadgeLegend
+                    badges={new Set(Object.values(tip?.badges ?? {}))}
+                    hasActive={rows.some((row) => row.id === activeIds[row.provider])}
+                  />
+                </>
+                )
               : null}
           </Box>
         </Box>
@@ -727,7 +772,9 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
           paddingX={1}
           overflow="hidden"
         >
-          <GraphTabs mode={graphMode} />
+          <Hit id={TAB_HIT} onMeasure={onHit}>
+            <GraphTabs mode={graphMode} />
+          </Hit>
           {graphMode === 'log'
             ? (
               <Log
