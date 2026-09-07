@@ -14,6 +14,71 @@ const isNumber = (value) => typeof value === 'number'
 const formatTick = (value) => String(Math.round(value)).padStart(TICK_WIDTH)
 const BLANK_TICK = ' '.repeat(TICK_WIDTH)
 
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+// 시간축 눈금 후보. 라벨이 겹치지 않는 가장 촘촘한 것을 고른다.
+const TIME_STEPS = [
+  5 * MINUTE, 10 * MINUTE, 15 * MINUTE, 30 * MINUTE,
+  HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR,
+  DAY, 2 * DAY, 7 * DAY,
+]
+
+/**
+ * 시간축 눈금. 폭이 넓을수록 촘촘해지고 좁으면 성겨진다.
+ *
+ * 양 끝 시각만 찍으면 그 사이 어디가 언제인지 셀 수 없다. 눈금은 정시나 자정
+ * 같은 깔끔한 시각에 맞춘다. 임의 시각에 찍으면 라벨을 읽어도 자리가 안 잡힌다.
+ *
+ * @returns {{ column: number, label: string }[]}
+ */
+function timeTicks(from, to, columns) {
+  if (!from || !to || to <= from || columns < 8) return []
+  const perCell = (to - from) / Math.max(1, columns - 1)
+  const dayStep = (step) => step >= DAY
+  // 하루 안이면 시각만, 넘으면 자정에 날짜를 붙인다. 하루 단위면 날짜만.
+  const labelOf = (at, step) => {
+    const when = new Date(at)
+    const date = `${when.getMonth() + 1}/${when.getDate()}`
+    if (dayStep(step)) return date
+    const midnight = when.getHours() === 0 && when.getMinutes() === 0
+    return midnight && to - from >= DAY ? date : clockAt(at)
+  }
+  // 라벨은 길어야 다섯 칸(HH:MM, MM/DD)이고 여유 두 칸을 둔다. 그보다 촘촘하면
+  // 붙어서 읽히지 않는다.
+  const LABEL_CELLS = 5 + 2
+  const step = TIME_STEPS.find((candidate) => candidate / perCell >= LABEL_CELLS) ?? TIME_STEPS.at(-1)
+  // 로컬 시간의 배수에 맞춘다. UTC 기준 배수는 자정과 정시가 어긋난다.
+  const offset = new Date(from).getTimezoneOffset() * MINUTE
+  const first = Math.ceil((from - offset) / step) * step + offset
+  const ticks = []
+  let lastEnd = -1
+  for (let at = first; at <= to; at += step) {
+    const column = Math.round((at - from) / perCell)
+    const label = labelOf(at, step)
+    if (column < lastEnd + 1 || column + label.length > columns) continue
+    ticks.push({ column, label })
+    lastEnd = column + label.length
+  }
+  return ticks
+}
+
+/** 바닥선. 눈금 자리는 ┴ 로 찍어 위 격자와 라벨이 같은 열이라는 것을 보인다. */
+function baseline(columns, ticks) {
+  const cells = new Array(columns).fill('─')
+  for (const tick of ticks) cells[tick.column] = '┴'
+  return cells.join('')
+}
+
+/** 눈금 라벨 줄. 각 라벨을 자기 눈금 열에서 시작한다. */
+function tickLabels(columns, ticks) {
+  const cells = new Array(columns).fill(' ')
+  for (const tick of ticks) {
+    for (let index = 0; index < tick.label.length; index += 1) cells[tick.column + index] = tick.label[index]
+  }
+  return cells.join('')
+}
+
 /**
  * 눈금을 찍을 행과 거기 쓸 값.
  *
@@ -66,18 +131,6 @@ export function Chart({
 
   // 경과 시간이 아니라 날짜가 바뀌었는지를 본다. 어제 저녁부터 오늘 아침까지는
   // 열아홉 시간이지만 그 사이에 날이 넘어간다.
-  const spansDay = Boolean(from && to)
-    && new Date(from).toDateString() !== new Date(to).toDateString()
-  const stamp = (value) => (value ? clockAt(value, { withDate: spansDay }) : '')
-  const gap = Math.max(1, drawn - (spansDay ? 20 : 10))
-  const timeAxis = showAxis
-    ? (
-      <Text color="gray" wrap="truncate">
-        {`${' '.repeat(AXIS_WIDTH)}${stamp(from)}${' '.repeat(gap)}${stamp(to)}`}
-      </Text>
-      )
-    : null
-
   // 맨 아랫줄은 바닥선이다. 데이터는 그 위 줄들에 그린다. 줄을 하나 내주는 대신
   // 어디가 0 인지가 선으로 보인다. 점자는 세로가 네 배라 그 한 줄이 아깝지 않다.
   const dataRows = Math.max(1, height - 1)
@@ -88,6 +141,10 @@ export function Chart({
       : lineGrid(series, min, max, dataRows)
   const columns = Math.max(...grid.map((cells) => cells.length), 0)
   const marks = tickMarks(height, min, max)
+  const ticks = timeTicks(from, to, columns)
+  const timeAxis = showAxis
+    ? <Text color="gray" wrap="truncate">{`${' '.repeat(AXIS_WIDTH)}${tickLabels(columns, ticks)}`}</Text>
+    : null
   return (
     <>
       {grid.map((cells, row) => (
@@ -101,7 +158,7 @@ export function Chart({
         </Text>
       ))}
       <Text color="gray" wrap="truncate">
-        {`${axisLabel(height - 1, height, max, marks)}${'─'.repeat(columns)}`}
+        {`${axisLabel(height - 1, height, max, marks)}${baseline(columns, ticks)}`}
       </Text>
       {timeAxis}
     </>
