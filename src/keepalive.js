@@ -37,10 +37,11 @@ const REFRESH_AFTER_EXPIRY_MS = 60 * 60_000
  * 창을 연다. 토큰이 살아 있으면 읽기만 한다. 만료된 지 오래면 갱신해 되쓴다.
  * 이 계정은 바로 창이 안 도는 계정이라 Orca 도 손을 놓은 상태다.
  *
- * @returns {Promise<{ok: true} | {ok: false, reason: string}>}
+ * @returns {Promise<{ok: true, refreshed: boolean} | {ok: false, reason: string, refreshed?: boolean}>}
  */
 export async function openWindow(accountId) {
   let token
+  let refreshed = false
   try {
     // 만료 직후에는 갱신하지 않는다. lastRefreshAt 을 0 으로 주어 간격 제한은 안 건다.
     const peek = await ensureToken(accountId, { allowRefresh: false, lastRefreshAt: 0 })
@@ -56,6 +57,7 @@ export async function openWindow(accountId) {
       return { ok: false, reason: result.note ?? '토큰 만료' }
     }
     token = result.token
+    refreshed = Boolean(result.refreshed)
   } catch (error) {
     return { ok: false, reason: error instanceof CredentialError ? error.message : '자격증명 읽기 실패' }
   }
@@ -79,8 +81,8 @@ export async function openWindow(accountId) {
       }),
       signal: controller.signal,
     })
-    if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` }
-    return { ok: true }
+    if (!response.ok) return { ok: false, reason: `HTTP ${response.status}`, refreshed }
+    return { ok: true, refreshed }
   } catch {
     return { ok: false, reason: '요청 실패' }
   } finally {

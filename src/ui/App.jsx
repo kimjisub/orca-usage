@@ -14,7 +14,7 @@ import { pollOnce, rowsFromCache } from '../poller.js'
 import { loadHistory } from '../store.js'
 import { ACTIVE_MARK, AccountBlock, BADGES, blockHeight } from './AccountBlock.jsx'
 import { TotalBars, totalBarsHeight } from './TotalBars.jsx'
-import { Advice, Graph, OverviewGraph, adviceHeight } from './Graph.jsx'
+import { Advice, AutoBlock, Graph, OverviewGraph, adviceHeight, autoBlockHeight } from './Graph.jsx'
 import { Hit, HitRoot } from './Hit.jsx'
 import { Schedule } from './Schedule.jsx'
 import { OPEN_COOLDOWN_MS, needsOpening, openWindow } from '../keepalive.js'
@@ -44,13 +44,13 @@ const ACTIONS = [
   { key: 'f', label: 'Fable' },
   { key: 'w', label: '기간' },
   { key: 'a', label: '자동' },
-  { key: 'o', label: '창유지' },
+  { key: 'o', label: '사이클' },
   { key: 'enter', label: '전환' },
   { key: 'g', label: '그래프' },
   { key: 'q', label: '종료' },
 ]
 
-function Header({ nextPollAt, busy, now, message, autoSwitch, keepAlive, direct }) {
+function Header({ nextPollAt, busy, now, message, autoSwitch, direct }) {
   const right = busy
     ? '조회 중'
     : nextPollAt ? `다음 조회 ${shortSpan(nextPollAt - now)}` : ''
@@ -66,7 +66,6 @@ function Header({ nextPollAt, busy, now, message, autoSwitch, keepAlive, direct 
           {/* Orca 없이 직접 치는 중이면 알린다. 값이 낡거나 백오프에 걸릴 수 있어서다. */}
           {direct ? <Text color="yellow">{'Orca 연결 안 됨, 직접 조회  '}</Text> : null}
           {autoSwitch ? <Text color="green" bold>{'자동 전환  '}</Text> : null}
-          {keepAlive ? <Text color="green" bold>{'창 유지  '}</Text> : null}
           <Text color="gray">{right}</Text>
         </Text>
       </Box>
@@ -168,6 +167,8 @@ export function App({ intervalMs, allowRefresh }) {
   useEffect(() => { keepAliveRef.current = keepAlive }, [keepAlive])
   // 계정별로 마지막에 창을 연 시각. 한 바퀴 안에 두 번 보내지 않는다.
   const openedAt = useRef(new Map())
+  // 마지막으로 창을 연 결과. 자동 블록이 보인다.
+  const [lastOpen, setLastOpen] = useState(null)
   const lastSwitchAt = useRef(saved.lastSwitchAt)
   const switching = useRef(false)
   const [decision, setDecision] = useState(null)
@@ -323,6 +324,7 @@ export function App({ intervalMs, allowRefresh }) {
           if (now - (openedAt.current.get(row.id) ?? 0) < OPEN_COOLDOWN_MS) continue
           openedAt.current.set(row.id, now)
           const result = await openWindow(row.id)
+          setLastOpen({ email: row.email, at: now, ...result })
           notify(result.ok ? `${row.email} 5h 창 열음` : `${row.email} 창 못 열음: ${result.reason}`)
         }
       }
@@ -412,7 +414,7 @@ export function App({ intervalMs, allowRefresh }) {
     }
     else if (key === 'o') {
       setKeepAlive((value) => {
-        notify(value ? '창 유지 끔' : '창 유지 켬 (닫힌 5h 창을 요청 하나로 엽니다)')
+        notify(value ? '사이클 자동트리거 끔' : '사이클 자동트리거 켬 (닫힌 5h 창을 요청 하나로 엽니다)')
         return !value
       })
     }
@@ -529,7 +531,7 @@ export function App({ intervalMs, allowRefresh }) {
     }
     const budget = layout.panelHeight - 2
       - totalBarsHeight(claudeRows, windowsVisible)
-      - adviceHeight(adviceCompact)
+      - adviceHeight(adviceCompact) - autoBlockHeight(adviceCompact)
       - (legendVisible ? LEGEND_ROWS : 0)
     if (rowsIn(0, count) <= budget) {
       viewStart.current = 0
@@ -584,7 +586,6 @@ export function App({ intervalMs, allowRefresh }) {
         now={now}
         message={message}
         autoSwitch={autoSwitch}
-        keepAlive={keepAlive}
         direct={rows.some((row) => row.source === 'direct')}
       />
       <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">
@@ -633,7 +634,16 @@ export function App({ intervalMs, allowRefresh }) {
             )
           })}
           <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
-            <Advice tip={tip} autoSwitch={autoSwitch} decision={decision} compact={adviceCompact} />
+            <Advice tip={tip} compact={adviceCompact} />
+            <AutoBlock
+              rows={claudeRows}
+              lastOpen={lastOpen}
+              keepAlive={keepAlive}
+              autoSwitch={autoSwitch}
+              decision={decision}
+              now={now}
+              compact={adviceCompact}
+            />
             {legendVisible
               ? <><Text> </Text><BadgeLegend /></>
               : null}

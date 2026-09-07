@@ -71,7 +71,7 @@ orca-usage --no-refresh-tokens never refresh an expired token
 | `r` | Refresh all | `t` | Reissue the selected account's token |
 | `d` | Cycle usage / consumption rate / week ahead | `f` | Show or hide per-model windows |
 | `w` | Cycle the range (3h to 1M) | `a` | Toggle automatic switching |
-| `g` | Collapse or expand the graph | `o` | Toggle window keep-alive |
+| `g` | Collapse or expand the graph | `o` | Toggle cycle auto-trigger |
 | `q` | Quit | | |
 | `Enter` | Point Orca at the selected account | `1`-`9` | Jump to an account |
 
@@ -95,9 +95,11 @@ Off by default; `a` turns it on, and it only moves between Claude accounts. When
 
 Terminals that are already open keep running on the old account. The new one applies to sessions you open afterwards.
 
-## Window keep-alive
+## Cycle auto-trigger
 
-Off by default; `o` turns it on. The 5-hour and 7-day windows only start counting on the first request, so an account you are not using has no reset clock running. When you do switch to it you wait the full five hours or seven days from that moment. With keep-alive on, each poll looks for Claude accounts whose 5h window is missing or has closed and sends a one-token request to the cheapest model to open it. Opening the 5h window starts the 7d one too. The cost is below the integer percent the usage endpoint reports, so it shows as zero. The same account is not touched twice within ten minutes, and the token is only read, never rotated.
+Off by default; `o` turns it on. The 5-hour and 7-day windows only start counting on the first request, so an account you are not using has no reset clock running. When you do switch to it you wait the full five hours or seven days from that moment. With keep-alive on, each poll looks for Claude accounts whose 5h window is missing or has closed and sends a one-token request to the cheapest model to open it. Opening the 5h window starts the 7d one too. The cost is below the integer percent the usage endpoint reports, so it shows as zero. The same account is not touched twice within ten minutes. A token that has been expired for over an hour is refreshed here, since Orca only refreshes tokens for accounts it is using and leaves idle ones expired.
+
+The bottom of the account panel lists what runs on its own: the usage poll, token refreshes, the cycle trigger and account switching, each with what it last did. On short terminals it folds to one line.
 
 ## How it works
 
