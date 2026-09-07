@@ -16,7 +16,12 @@ const padStart = (text, width) => ' '.repeat(Math.max(0, width - cellWidth(text)
  * 오른다는 것이나 요청 사이 간격 같은 것은 사람이 정할 값이 아니다. 여기 있는
  * 것은 "언제부터 위험으로 볼까" 처럼 쓰는 사람에 따라 갈리는 것뿐이다.
  */
-export function Settings({ values, selected, height }) {
+// 라벨과 값, 그리고 힌트가 읽힐 만큼. 이보다 좁으면 힌트를 접고 고른 줄의
+// 것만 아래에 따로 적는다. 줄마다 잘린 문장이 늘어서면 아무것도 안 읽힌다.
+const HINT_WIDTH = LABEL_WIDTH + VALUE_WIDTH + 26
+
+export function Settings({ values, selected, height, columns }) {
+  const inlineHint = columns >= HINT_WIDTH
   const shown = TUNABLES.slice(0, Math.max(1, height - 2))
   return (
     <Box flexDirection="column">
@@ -36,11 +41,14 @@ export function Settings({ values, selected, height }) {
             <Text color={changed ? 'yellow' : 'white'} bold>
               {padStart(formatTuning(item, value), VALUE_WIDTH)}
             </Text>
-            <Text color="gray">{`  ${item.hint}`}</Text>
+            {inlineHint ? <Text color="gray">{`  ${item.hint}`}</Text> : null}
           </Text>
         )
       })}
-      <Text color="gray" wrap="truncate">{'  0 을 누르면 고른 항목이 기본값으로 돌아갑니다'}</Text>
+      {inlineHint
+        ? null
+        : <Text color="gray" wrap="truncate">{`  ${TUNABLES[selected]?.hint ?? ''}`}</Text>}
+      <Text color="gray" wrap="truncate">{'  0 을 누르면 기본값으로 돌아갑니다'}</Text>
     </Box>
   )
 }

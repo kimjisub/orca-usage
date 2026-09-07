@@ -11,9 +11,7 @@ const SECTIONS = [
   {
     title: '이 도구가 하는 일',
     lines: [
-      ['', 'Orca 가 관리하는 Claude 와 Codex 계정의 한도를 한 화면에 놓고,'],
-      ['', '언제 어느 계정을 쓸지 답한다. 조회와 토큰 갱신, 창 열기, 계정'],
-      ['', '전환까지 스스로 하고 그 기록을 남긴다.'],
+      ['', 'Orca 가 관리하는 Claude 와 Codex 계정의 한도를 한 화면에 놓고, 언제 어느 계정을 쓸지 답한다. 조회와 토큰 갱신, 창 열기, 계정 전환까지 스스로 하고 그 기록을 남긴다.'],
     ],
   },
   {
@@ -48,12 +46,37 @@ const SECTIONS = [
   },
 ]
 
+/** 폭에 맞춰 낱말 경계에서 끊는다. 자르면 문장이 통째로 뜻을 잃는다. */
+function wrap(text, width) {
+  const lines = []
+  let line = ''
+  for (const word of text.split(' ')) {
+    const next = line ? `${line} ${word}` : word
+    if (cellWidth(next) > width && line) {
+      lines.push(line)
+      line = word
+    } else {
+      line = next
+    }
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
 /** 제품 설명. --help 와 같은 내용을 화면 안에서 본다. */
-export function Help({ height }) {
+export function Help({ height, columns }) {
+  const body = Math.max(10, columns - TOPIC_WIDTH)
   const rows = []
   for (const section of SECTIONS) {
     rows.push({ title: section.title })
-    for (const [topic, text] of section.lines) rows.push({ topic, text })
+    for (const [topic, text] of section.lines) {
+      // 제목이 없는 항목은 본문이 왼쪽부터 흐른다. 제목 자리를 비워 두면 좁은
+      // 화면에서 글이 들어갈 폭이 그만큼 줄어든다.
+      const width = topic ? body : Math.max(10, columns - 2)
+      wrap(text, width).forEach((line, index) => rows.push({
+        topic: index ? '' : topic, text: line, flush: !topic,
+      }))
+    }
     rows.push({ blank: true })
   }
   return (
@@ -63,7 +86,7 @@ export function Help({ height }) {
         if (row.title) return <Text key={index} color="white" bold wrap="truncate">{row.title}</Text>
         return (
           <Text key={index} wrap="truncate">
-            <Text color="cyan">{`  ${pad(row.topic, TOPIC_WIDTH - 2)}`}</Text>
+            <Text color="cyan">{row.flush ? '  ' : `  ${pad(row.topic, TOPIC_WIDTH - 2)}`}</Text>
             <Text color="gray">{row.text}</Text>
           </Text>
         )

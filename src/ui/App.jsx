@@ -131,8 +131,26 @@ const TAB_RANGES = (() => {
   })
 })()
 
-/** 오른쪽 패널의 탭. 무엇을 볼 수 있고 지금 어디인지 한 줄로 보인다. 눌러도 바뀐다. */
-function GraphTabs({ mode }) {
+// 탭 일곱이 다 들어가려면 이만큼 필요하다.
+const TAB_ROW_WIDTH = TAB_RANGES.at(-1)?.end ?? 0
+
+/**
+ * 오른쪽 패널의 탭. 무엇을 볼 수 있고 지금 어디인지 한 줄로 보인다. 눌러도 바뀐다.
+ *
+ * 폭이 모자라면 뒤쪽 탭이 통째로 잘려 무엇이 더 있는지조차 안 보인다. 그때는
+ * 고른 것 하나와 몇 번째인지만 남긴다.
+ */
+function GraphTabs({ mode, width }) {
+  const at = GRAPH_TABS.findIndex((tab) => tab.mode === mode)
+  if (width < TAB_ROW_WIDTH) {
+    return (
+      <Text wrap="truncate">
+        <Text color="gray">{TAB_LEAD}</Text>
+        <Text color="cyan" bold>{`[${GRAPH_TABS[at]?.label ?? ''}]`}</Text>
+        <Text color="gray">{`  ${at + 1}/${GRAPH_TABS.length}`}</Text>
+      </Text>
+    )
+  }
   return (
     <Text wrap="truncate">
       <Text color="gray">{TAB_LEAD}</Text>
@@ -288,12 +306,18 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const graphFits = columns - listWidth - 4 >= MIN_GRAPH_WIDTH
   const windowsFit = screenRows >= TIGHT_ROWS
   // 기록은 선이 아니라 글이라 좁은 화면에서도 읽힌다. 그래프 폭 조건을 안 건다.
-  const graphVisible = showGraph
-    && (['log', 'score', 'settings', 'help'].includes(graphMode) || graphFits)
+  // 글로 된 패널은 선이 아니라서 좁아도 읽히지만, 좌우로 나눈 채로는 양쪽 다
+  // 눌린다. 나란히 세울 자리가 없으면 고른 것 하나가 폭을 다 쓰고 계정 목록은
+  // 그동안 접힌다. 사용량과 소비는 그래프라 접히던 대로 접힌다.
+  const textPanel = ['schedule', 'score', 'log', 'settings', 'help'].includes(graphMode)
+  const graphVisible = showGraph && (graphFits || textPanel)
+  const listVisible = graphFits || !graphVisible
   const windowsVisible = showModelWindows && windowsFit
   const legendVisible = screenRows >= MIN_LEGEND_ROWS
   const adviceCompact = screenRows < TIGHT_ROWS
-  const panelWidth = graphVisible ? listWidth : columns
+  const panelWidth = graphVisible && listVisible ? listWidth : columns
+  // 오른쪽 상자 안쪽 폭. 테두리 둘과 패딩 둘을 뺀다.
+  const graphWidth = (listVisible ? columns - panelWidth : columns) - 4
   // 키 처리기가 읽는다. 의존성에 넣으면 창 크기가 바뀔 때마다 처리기가 다시 만들어진다.
   const fit = useRef({ graph: true, windows: true })
   fit.current = { graph: graphFits, windows: windowsFit }
@@ -705,7 +729,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       // 상자 모양이 바뀔 때마다 어긋난다.
       const tabs = hits.current.get(TAB_HIT)
       if (!tabs || y < tabs.top || y >= tabs.top + tabs.height) return
-      const at = column - 1 - (layout.panelWidth + 2)
+      const at = column - 1 - (listVisible ? layout.panelWidth + 2 : 2)
       const tab = TAB_RANGES.find((range) => at >= range.start && at < range.end)
       if (tab) setGraphMode(tab.mode)
       return
@@ -717,7 +741,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
         return
       }
     }
-  }, [layout.panelWidth, layout.panelHeight])
+  }, [layout.panelWidth, layout.panelHeight, listVisible])
 
   useMouseReporting()
 
@@ -741,9 +765,14 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
         direct={rows.some((row) => row.source === 'direct')}
       />
       <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">
+        {/* 왼쪽은 flexShrink 를 막는다. 오른쪽 내용이 길면 flex 가 이쪽을 눌러
+            막대와 이름이 잘리는데, 폭은 목록이 필요로 하는 만큼이라 내줄 자리가
+            없다. */}
+        {listVisible ? (
         <Box
           width={layout.panelWidth}
           height={layout.panelHeight}
+          flexShrink={0}
           flexDirection="column"
           borderStyle="round"
           borderColor="gray"
@@ -807,6 +836,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
               : null}
           </Box>
         </Box>
+        ) : null}
 
         {graphVisible ? (
         <Box
@@ -819,7 +849,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
           overflow="hidden"
         >
           <Hit id={TAB_HIT} onMeasure={onHit}>
-            <GraphTabs mode={graphMode} />
+            <GraphTabs mode={graphMode} width={graphWidth} />
           </Hit>
           {graphMode === 'score'
             ? (
@@ -832,16 +862,16 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
               />
               )
             : graphMode === 'settings'
-            ? <Settings values={tuned} selected={tuneAt} height={layout.graphHeight - 1} />
+            ? <Settings values={tuned} selected={tuneAt} height={layout.graphHeight - 1} columns={graphWidth} />
             : graphMode === 'help'
-            ? <Help height={layout.graphHeight - 1} />
+            ? <Help height={layout.graphHeight - 1} columns={graphWidth} />
             : graphMode === 'log'
             ? (
               <Log
                 entries={logEntries}
                 now={now}
                 height={layout.graphHeight - 1}
-                columns={columns - layout.panelWidth - 4}
+                columns={graphWidth}
               />
               )
             : graphMode === 'schedule'
@@ -851,7 +881,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
                 historyById={history}
                 now={now}
                 height={layout.graphHeight - 1}
-                columns={columns - layout.panelWidth - 4}
+                columns={graphWidth}
               />
               )
             : (current
@@ -859,7 +889,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
                   <Graph
                     row={current}
                     history={history[current.id] ?? []}
-                    columns={columns - layout.panelWidth - 4}
+                    columns={graphWidth}
                     height={layout.graphHeight - 1}
                     mode={graphMode}
                     showModelWindows={windowsVisible}
@@ -872,7 +902,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
                   <OverviewGraph
                     accounts={claudeRows}
                     historyById={history}
-                    columns={columns - layout.panelWidth - 4}
+                    columns={graphWidth}
                     height={layout.graphHeight - 1}
                     mode={graphMode}
                     showModelWindows={windowsVisible}
