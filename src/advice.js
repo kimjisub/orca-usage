@@ -16,8 +16,15 @@ const SHORT_MAX_BURN = 20
 // 앞을 내다보는 창. 5시간 창 하나 길이라 "지금 붙으면 한 창 동안 얼마나 일할
 // 수 있나" 를 잰다.
 const LOOKAHEAD_H = 5
-// 7일 창을 얼마나 빨리 태울 수 있는지는 관측으로만 안다. 표본이 없을 때 쓸 하한.
-export const WEEKLY_MAX_BURN_FLOOR = 3
+// 5시간 창을 100% 채우면 7일 창이 20%p 오른다. 실측 2026-09-07 에 네 계정이
+// 0.18~0.20 으로 나왔고 사용자도 같은 값을 확인했다.
+const WEEKLY_PER_SHORT_WINDOW = 20
+// 그래서 7일 창을 태우는 최대 속도는 정해져 있다. 5시간에 20%p, 시간당 4%p 다.
+// 관측 속도가 이보다 클 수 없으므로 하한이 아니라 상한이다.
+export const WEEKLY_MAX_BURN = WEEKLY_PER_SHORT_WINDOW / LOOKAHEAD_H
+// 리셋 전에 다 쓰려면 최대 속도의 이만큼을 넘게 태워야 하는 계정은 급한 것으로
+// 본다. 그 아래는 가만 둬도 다 쓸 수 있어 순위를 가를 근거가 못 된다.
+const RELAXED_RATIO = 0.5
 
 const windowOf = (row, label) => (row.usage?.windows ?? []).find((w) => w.label === label)
 
@@ -98,12 +105,6 @@ function wastedIfIdle(remaining, msLeft, maxBurn) {
  * 봐야 "지금 어디에 붙을까" 가 갈린다.
  */
 export function scoreAccounts(rows, historyById, now = Date.now()) {
-  const burns = rows
-    .map((row) => weeklyBurn(historyById?.[row.id]))
-    .filter((value) => typeof value === 'number' && value > 0)
-  // 이 사람이 실제로 낼 수 있는 속도를 관측에서 잡는다. 아무도 안 태웠으면 하한.
-  const weeklyMaxBurn = Math.max(WEEKLY_MAX_BURN_FLOOR, ...burns)
-
   return rows.map((row) => {
     const short = windowOf(row, '5h')
     const weekly = windowOf(row, '7d')
@@ -139,18 +140,17 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
       // 이 속도로 계속 태우면 주간 여력이 몇 시간 남았나.
       runwayHours: burn > 0 ? reserve / burn : null,
       shortWaste: wastedIfIdle(burst, shortResetIn, SHORT_MAX_BURN),
-      weeklyWaste: wastedIfIdle(reserve, weeklyResetIn, weeklyMaxBurn),
+      weeklyWaste: wastedIfIdle(reserve, weeklyResetIn, WEEKLY_MAX_BURN),
       // 리셋까지 다 쓰려면 시간당 얼마를 태워야 하는가. 클수록 먼저 손대야 한다.
       shortNeed,
       weeklyNeed: burnNeeded(reserve, weeklyResetIn),
-      // 그 속도를 실제로 낼 수 있는 속도와 견준 값. 0 이면 가만 둬도 리셋 전에
-      // 다 쓴다는 뜻이라 급할 것이 없다.
-      //
-      // 순위에 need 를 그대로 쓰면 안 된다. 넷 다 넉넉한 상황에서도 0.75 와
-      // 0.57 처럼 값이 늘 달라 여기서 결판이 나고, 정작 "지금 붙으면 얼마나
-      // 일할 수 있나" 를 못 본다. 여유로운 계정끼리는 나란히 두고 다음 기준으로
-      // 넘긴다.
-      weeklyUrgency: Math.max(0, burnNeeded(reserve, weeklyResetIn) / weeklyMaxBurn - 1),
+      // 그 속도를 낼 수 있는 최대 속도와 견준 값. 여유로운 계정끼리는 0 으로
+      // 눕혀 나란히 둔다. 넷 다 넉넉한 상황에서도 값이 늘 달라 여기서 결판이
+      // 나면, 정작 "지금 붙으면 얼마나 일할 수 있나" 를 못 본다.
+      weeklyUrgency: (() => {
+        const ratio = burnNeeded(reserve, weeklyResetIn) / WEEKLY_MAX_BURN
+        return ratio >= RELAXED_RATIO ? ratio : 0
+      })(),
       // 지금 붙으면 다섯 시간 동안 얼마나 태울 수 있나.
       reachable: reachableIn(burst, shortResetIn),
     }
@@ -216,9 +216,13 @@ export function advise(rows, historyById, now = Date.now()) {
     .sort((a, b) => b.reserve - a.reserve || b.burst - a.burst)[0] ?? null
 
   // 아껴 둘 계정은 주간을 많이 썼으면서 리셋이 아직 먼 쪽이다. 리셋이 코앞이면
-  // 남은 몫이 어차피 사라지므로 아끼는 것이 오히려 손해다.
+  // 남은 몫이 어차피 사라지므로 아끼는 것이 오히려 손해다. 그 판단이 곧
+  // weeklyUrgency 다. 리셋까지 부지런히 태워야 다 쓰는 계정을 아끼라고 말하면
+  // 안 쓴 몫이 그대로 사라진다.
   const avoid = [...scored]
-    .filter((entry) => entry.weeklyPct >= SPARE_AT && entry.weeklyWaste < WASTE_ALERT)
+    .filter((entry) => entry.weeklyPct >= SPARE_AT
+      && entry.weeklyWaste < WASTE_ALERT
+      && entry.weeklyUrgency === 0)
     .sort((a, b) => b.weeklyPct - a.weeklyPct)[0] ?? null
 
   // 계정마다 배지 하나. 겹치면 급한 쪽이 이긴다. 막힌 것을 먼저 알려야 하고,

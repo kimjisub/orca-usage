@@ -1,4 +1,4 @@
-import { WASTE_ALERT, WEEKLY_MAX_BURN_FLOOR, scoreAccounts } from './advice.js'
+import { WASTE_ALERT, WEEKLY_MAX_BURN, scoreAccounts } from './advice.js'
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 24 * HOUR_MS
@@ -58,7 +58,6 @@ export function buildSchedule(rows, historyById, now = Date.now()) {
   const scored = scoreAccounts(rows, historyById, now).filter((entry) => entry.hasData)
   if (scored.length === 0) return null
   const burns = scored.map((entry) => entry.burn).filter((value) => typeof value === 'number' && value > 0)
-  const maxBurn = Math.max(WEEKLY_MAX_BURN_FLOOR, ...burns)
   // 지난 시간은 비운다. 이번 시간은 아직 진행 중이라 남긴다.
   const from = now - HOUR_MS
   const todayStart = startOfDay(now)
@@ -74,7 +73,7 @@ export function buildSchedule(rows, historyById, now = Date.now()) {
         continue
       }
       const avail = scored.reduce((sum, entry) => sum + availableAt(entry, t, now), 0) / scored.length
-      cells.push({ avail, spurt: scored.some((entry) => spurtAt(entry, t, now, maxBurn)) })
+      cells.push({ avail, spurt: scored.some((entry) => spurtAt(entry, t, now, WEEKLY_MAX_BURN)) })
     }
     days.push({ weekday: new Date(dayStart).getDay(), today: offset === 0, cells })
   }
