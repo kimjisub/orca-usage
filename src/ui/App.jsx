@@ -110,7 +110,7 @@ function BadgeLegend() {
   )
 }
 
-export function App({ intervalMs, allowRefresh }) {
+export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const { exit } = useApp()
   const { columns, rows: screenRows } = useFullscreen()
 
@@ -681,6 +681,7 @@ export function App({ intervalMs, allowRefresh }) {
                     showModelWindows={windowsVisible}
                     rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
+                    style={graphStyle}
                   />
                   )
                 : (
@@ -693,6 +694,7 @@ export function App({ intervalMs, allowRefresh }) {
                     showModelWindows={windowsVisible}
                     rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
+                    style={graphStyle}
                   />
                   ))}
         </Box>

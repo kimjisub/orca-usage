@@ -22,7 +22,7 @@ A terminal dashboard for the Claude and Codex accounts managed by [Orca](https:/
 - **Reads every account at once.** Orca keeps each Claude login in its own credential slot; this walks all of them instead of only the one you are attached to.
 - **Covers both providers.** Claude and Codex accounts are listed in separate sections, because they do not share a window layout: Claude reports a 5-hour, a 7-day and per-model window, Codex reports a weekly one plus rate-limit reset credits.
 - **Tracks the windows that matter.** The 5-hour and 7-day limits, plus per-model windows when you want them.
-- **Plots history.** Usage level over time, or consumption rate in percentage points per hour. Ranges from 3 hours to a month.
+- **Plots history.** Usage level over time, or consumption rate in percentage points per hour. Ranges from 3 hours to a month. Level lines are drawn in braille, eight dots per cell, the way btop and bottom do it; the axis picks 20, 50 or 100 to fit the data and the 5h window gets half the height since it moves fastest. `--graph block` falls back to box characters for fonts whose braille glyphs leave a gap.
 - **Shows the week ahead.** A third graph mode draws the next seven days one hour per cell, coloured by how much weekly headroom the accounts together will have then. Resets are exact; the stretch between them is projected from the observed burn rate. Today's row is split per account so you can see who is blocked and when it clears. A `!` marks hours where an account will reset with more than 15% left unspent.
 - **Leaves gaps where there is no data.** Sampling gaps are drawn as gaps, not as a flat line carried forward from the last reading.
 - **Suggests where to go next.** Badges mark the account that is best to use now, the one whose weekly quota will expire unused, and the one to save.
@@ -62,6 +62,7 @@ orca-usage --interval 600      polling interval in seconds (minimum 60)
 orca-usage --once              print once and exit
 orca-usage --json              machine-readable output (pair with --once)
 orca-usage --no-refresh-tokens never refresh an expired token
+orca-usage --graph block       draw level lines with box characters instead of braille
 ```
 
 ### Keys

@@ -122,8 +122,8 @@ export function keysForMode(keys, mode) {
 }
 
 /**
- * 그릴 시리즈를 만든다. 누적은 0~100 고정 축이라 계정을 바꿔도
- * 눈금이 흔들리지 않고, 소비는 값이 작아 관측 최댓값에 맞춘 자동 축을 쓴다.
+ * 그릴 시리즈를 만든다. 누적은 20, 50, 100 중 관측에 맞는 축을 쓰고, 소비는
+ * 값이 작아 관측 최댓값에 맞춘 자동 축을 쓴다.
  *
  * @returns {{series:number[][], keys:string[], min:number, max:number, from:number|null, to:number|null}}
  */
@@ -136,10 +136,23 @@ export function chartSeries(history, keys, columns, mode = 'level', rangeMs = nu
     series: folded.map((entry) => entry.values),
     keys,
     min: 0,
-    max: mode === 'rate' ? niceCeiling(observed) : 100,
+    max: mode === 'rate' ? niceCeiling(observed) : levelCeiling(observed),
     from: Math.min(...folded.map((e) => e.from ?? Infinity)) || null,
     to: Math.max(...folded.map((e) => e.to ?? 0)) || null,
   }
+}
+
+/**
+ * 누적 축의 꼭대기. 관측 최댓값에 맞춰 20, 50, 100 중 하나다.
+ *
+ * 100 으로 못 박으면 이번 주처럼 사용률이 낮을 때 선이 바닥에 붙어 5% 와 12% 가
+ * 한 줄이 된다. 그렇다고 값에 딱 맞추면 계정을 바꿀 때마다 축이 튄다. 셋 중
+ * 하나면 낮은 구간에서 다섯 배 벌어지고 계정을 옮겨도 대개 같은 축이다.
+ */
+function levelCeiling(observed) {
+  if (observed <= 20) return 20
+  if (observed <= 50) return 50
+  return 100
 }
 
 /** 축 꼭대기를 1, 2, 5 의 배수로 올려 눈금 숫자가 읽기 좋게 떨어지게 한다. */
@@ -213,7 +226,7 @@ export function overviewSeries(historyById, accounts, keys, columns, mode = 'lev
   return {
     lines,
     min: 0,
-    max: mode === 'rate' ? niceCeiling(observed) : 100,
+    max: mode === 'rate' ? niceCeiling(observed) : levelCeiling(observed),
     from: range.from,
     to: range.to,
     latest,

@@ -3,6 +3,7 @@ import { Box, Text } from 'ink'
 import { chartSeries, colorForSeries, keysForMode, overviewSeries } from '../chart.js'
 import { shortSpan, visibleWindows } from '../format.js'
 import { AXIS_WIDTH, Chart } from './Chart.jsx'
+import { DOTS_PER_CELL_X } from '../braille.js'
 
 const DOT = '●'
 
@@ -22,7 +23,7 @@ const Empty = ({ text }) => <Text color="gray">{text}</Text>
  * 따로 그리면 각 격자에 선이 하나뿐이라 모양이 바로 읽힌다. 대신 세로가 나뉘어
  * 각 차트는 작아진다.
  */
-function Panel({ label, color, series, min, max, height, mode, from, to, showAxis }) {
+function Panel({ label, color, series, min, max, height, mode, from, to, showAxis, style }) {
   return (
     <Box flexDirection="column">
       <Text wrap="truncate">
@@ -39,6 +40,7 @@ function Panel({ label, color, series, min, max, height, mode, from, to, showAxi
         from={from}
         to={to}
         showAxis={showAxis}
+        style={style}
       />
     </Box>
   )
@@ -56,11 +58,21 @@ const MIN_PANEL = 5
  * 빠지고, 그래도 모자라면 5h 만 남긴다.
  */
 function planPanels(height, keys) {
+  const usable = height - 1
   for (let count = keys.length; count >= 1; count -= 1) {
-    const each = Math.floor((height - 1) / count)
-    if (each >= MIN_PANEL) return { keys: keys.slice(0, count), each }
+    const shown = keys.slice(0, count)
+    // 5h 가 있고 창이 둘 이상이면 5h 에 절반을 준다. 가장 빨리 움직이는 창이라
+    // 해상도가 가장 필요하고, 7d 는 하루에 몇 칸 안 움직인다.
+    const favour = count > 1 && shown.includes('5h')
+    const short = favour ? Math.floor(usable / 2) : 0
+    const rest = favour ? count - 1 : count
+    const each = Math.floor((usable - short) / rest)
+    if (each >= MIN_PANEL && (!favour || short >= MIN_PANEL)) {
+      const heights = Object.fromEntries(shown.map((key) => [key, favour && key === '5h' ? short : each]))
+      return { keys: shown, heights }
+    }
   }
-  return { keys: keys.slice(0, 1), each: Math.max(4, height - 1) }
+  return { keys: keys.slice(0, 1), heights: { [keys[0]]: Math.max(4, usable) } }
 }
 
 /**
@@ -70,7 +82,7 @@ function planPanels(height, keys) {
  * 창은 서로 다른 한도라 합칠 수 없으니 따로 그린다.
  */
 export function OverviewGraph({
-  accounts, historyById, columns, height, mode, showModelWindows, rangeMs, rangeLabel,
+  accounts, historyById, columns, height, mode, showModelWindows, rangeMs, rangeLabel, style = 'braille',
 }) {
   // 계정 그래프와 같은 창을 그린다. 어느 계정에든 있는 창은 다 센다. 첫 계정만
   // 보면 그 계정이 아직 조회 전일 때 창이 통째로 빈다.
@@ -80,7 +92,9 @@ export function OverviewGraph({
   }
   const all = [...seen]
   const keys = keysForMode(all.length ? all : ['5h', '7d'], mode)
-  const width = Math.max(10, columns - AXIS_WIDTH)
+  // 점자는 한 칸에 가로 두 점이라 표본을 두 배 올린다. 누적 선에만 해당한다.
+  const dots = style === 'braille' && mode !== 'rate' ? DOTS_PER_CELL_X : 1
+  const width = Math.max(10, columns - AXIS_WIDTH) * dots
   const plan = planPanels(height - 1, keys)
 
   const { lines, min, max, from, to } =
@@ -104,11 +118,12 @@ export function OverviewGraph({
             series={line.values}
             min={min}
             max={max}
-            height={plan.each}
+            height={plan.heights[line.key]}
             mode={mode}
             from={from}
             to={to}
             showAxis={index === shown.length - 1}
+            style={style}
           />
           ))
         : <Empty text="표본이 쌓이면 여기에 그려집니다" />}
@@ -262,7 +277,7 @@ export function AutoBlock({ rows, lastOpen, keepAlive, autoSwitch, decision, now
 
 /** 계정 패널. 그 계정의 창을 하나씩 따로 그린다. */
 export function Graph({
-  row, history, columns, height, mode, showModelWindows, rangeMs, rangeLabel,
+  row, history, columns, height, mode, showModelWindows, rangeMs, rangeLabel, style = 'braille',
 }) {
   const all = visibleWindows(row.usage?.windows, showModelWindows).map((w) => w.label)
   const keys = keysForMode(all, mode)
@@ -270,7 +285,8 @@ export function Graph({
     return <Empty text={`${row.email} - 표본이 쌓이면 여기에 그려집니다`} />
   }
 
-  const width = Math.max(10, columns - AXIS_WIDTH)
+  const dots = style === 'braille' && mode !== 'rate' ? DOTS_PER_CELL_X : 1
+  const width = Math.max(10, columns - AXIS_WIDTH) * dots
   const { series, min, max, from, to } = chartSeries(history, keys, width, mode, rangeMs)
   if (!series.some((line) => line.some(isNumber))) {
     return <Empty text={`${row.email} - 표본이 쌓이면 여기에 그려집니다`} />
@@ -292,11 +308,12 @@ export function Graph({
           series={series[keys.indexOf(key)]}
           min={min}
           max={max}
-          height={plan.each}
+          height={plan.heights[key]}
           mode={mode}
           from={from}
           to={to}
           showAxis={index === plan.keys.length - 1}
+          style={style}
         />
       ))}
     </Box>

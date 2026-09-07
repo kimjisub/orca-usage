@@ -1,6 +1,7 @@
 import React from 'react'
 import { Text } from 'ink'
 import { areaGrid } from '../area.js'
+import { brailleGrid } from '../braille.js'
 import { lineGrid } from '../line.js'
 import { clockAt } from '../format.js'
 
@@ -37,9 +38,10 @@ function tickMarks(rows, min, max, wanted = 5) {
  * 격자의 축. 두 모드가 같은 배치를 쓰므로 모드를 바꿔도 눈금 자리가 그대로다.
  */
 function axisLabel(row, height, max, marks) {
-  const edge = row === 0 || row === height - 1
   const label = marks.has(row) ? formatTick(marks.get(row)) : BLANK_TICK
-  return `${label} ${edge ? '┼' : '┤'}`
+  // 맨 아래는 바닥선이 이어지는 모서리다. 바닥이 어디인지는 이 선으로 읽는다.
+  const mark = row === height - 1 ? '└' : row === 0 ? '┼' : '┤'
+  return `${label} ${mark}`
 }
 
 /**
@@ -51,7 +53,14 @@ function axisLabel(row, height, max, marks) {
  *
  * 둘 다 격자로 만들어 한 경로로 그린다. 값이 없는 칸은 어느 쪽이든 비운다.
  */
-export function Chart({ series, colors, min, max, height, mode, from, to, showAxis = true }) {
+/**
+ * @param {'braille'|'block'} style 누적 선을 그리는 방식. 점자는 한 칸을 세로 넷
+ *   가로 둘로 쪼개고, 블록은 박스 문자로 한 줄에 한 단계다. 점자 글리프가 칸을
+ *   다 안 채우는 폰트를 위해 블록을 남겨 둔다.
+ */
+export function Chart({
+  series, colors, min, max, height, mode, from, to, showAxis = true, style = 'braille',
+}) {
   const drawn = Math.max(...series.map((line) => line.length), 0)
   if (drawn === 0 || !series.some((line) => line.some(isNumber))) return null
 
@@ -69,9 +78,15 @@ export function Chart({ series, colors, min, max, height, mode, from, to, showAx
       )
     : null
 
+  // 맨 아랫줄은 바닥선이다. 데이터는 그 위 줄들에 그린다. 줄을 하나 내주는 대신
+  // 어디가 0 인지가 선으로 보인다. 점자는 세로가 네 배라 그 한 줄이 아깝지 않다.
+  const dataRows = Math.max(1, height - 1)
   const grid = mode === 'rate'
-    ? areaGrid(series, max, height)
-    : lineGrid(series, min, max, height)
+    ? areaGrid(series, max, dataRows)
+    : style === 'braille'
+      ? brailleGrid(series, min, max, dataRows)
+      : lineGrid(series, min, max, dataRows)
+  const columns = Math.max(...grid.map((cells) => cells.length), 0)
   const marks = tickMarks(height, min, max)
   return (
     <>
@@ -85,6 +100,9 @@ export function Chart({ series, colors, min, max, height, mode, from, to, showAx
           ))}
         </Text>
       ))}
+      <Text color="gray" wrap="truncate">
+        {`${axisLabel(height - 1, height, max, marks)}${'─'.repeat(columns)}`}
+      </Text>
       {timeAxis}
     </>
   )

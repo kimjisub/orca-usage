@@ -6,7 +6,7 @@ import { App } from './ui/App.jsx'
 
 function parseArgs(argv) {
   // 사용량 엔드포인트는 계정당 5분에 5회다(실측). 120초면 5분에 2.5회라 절반만 쓴다.
-  const options = { intervalMs: 120_000, allowRefresh: true, json: false, once: false }
+  const options = { intervalMs: 120_000, allowRefresh: true, json: false, once: false, graphStyle: 'braille' }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--interval') {
@@ -15,6 +15,13 @@ function parseArgs(argv) {
       // --once 가 삼켜지고 있었다.
       if (Number.isFinite(seconds)) {
         options.intervalMs = Math.max(60, seconds) * 1000
+        index += 1
+      }
+    } else if (arg === '--graph') {
+      // 점자 글리프가 칸을 다 안 채우는 폰트에서는 블록으로 돌린다.
+      const style = argv[index + 1]
+      if (style === 'braille' || style === 'block') {
+        options.graphStyle = style
         index += 1
       }
     } else if (arg === '--no-refresh-tokens') {
@@ -37,6 +44,14 @@ const HELP = `orca-usage - Orca 가 관리하는 Claude 와 Codex 계정들의 �
   orca-usage --once              한 번 조회하고 끝냅니다
   orca-usage --json              JSON 으로 출력합니다 (--once 를 함께 쓰세요)
   orca-usage --no-refresh-tokens 만료된 토큰을 갱신하지 않습니다
+  orca-usage --graph block       누적 선을 점자 대신 박스 문자로 그립니다
+
+그래프:
+  누적 선은 점자 문자로 그립니다. 한 칸이 세로 넷 가로 둘, 점 여덟 개라 박스
+  문자보다 세로 네 배, 가로 두 배로 잘게 그려집니다. btop 과 bottom 이 쓰는
+  방식입니다. 폰트가 점자 글리프를 칸에 다 못 채워 오른쪽에 틈이 보이면
+  --graph block 으로 돌립니다. 축은 관측 최댓값에 맞춰 20, 50, 100 중 하나이고,
+  5h 창이 세로의 절반을 씁니다. 맨 아랫줄이 바닥선입니다.
 
 사용량 출처:
   Orca 가 계정별로 이미 조회해 둔 값을 받습니다. 우리가 따로 치면 같은 예산을
@@ -137,7 +152,7 @@ async function main() {
   }
 
   const app = render(
-    <App intervalMs={options.intervalMs} allowRefresh={options.allowRefresh} />,
+    <App intervalMs={options.intervalMs} allowRefresh={options.allowRefresh} graphStyle={options.graphStyle} />,
     { exitOnCtrlC: true },
   )
   await app.waitUntilExit()
