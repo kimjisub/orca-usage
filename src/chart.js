@@ -92,14 +92,27 @@ const levelOf = (series, key) => series
  * 표본 사이의 증가분을 시간당 %p 로 환산한다. 조회 간격이 흔들려도 비교할 수 있다.
  * 창이 리셋되면 값이 떨어지는데, 그건 소비가 아니라 초기화라 0 으로 본다.
  */
+// 소비 속도를 재는 최소 간격. 사용률이 정수 % 라 1%p 계단이 짧은 간격에 걸리면
+// 속도가 튄다. 실측 2026-09-07: 4%p 가 19초 간격 표본에 걸려 764 %p/h 로 찍혔고
+// 축이 1000 까지 늘어나 나머지가 바닥에 붙었다. 5분이면 계단 하나가 12 %p/h 다.
+const MIN_RATE_SPAN_MS = 5 * 60_000
+
 function rateOf(series, key) {
   const levels = levelOf(series, key)
   const out = []
+  let anchor = levels[0]
   for (let index = 1; index < levels.length; index += 1) {
-    const spanMs = levels[index].at - levels[index - 1].at
-    if (spanMs <= 0) continue
-    const delta = levels[index].value - levels[index - 1].value
-    out.push({ at: levels[index].at, value: delta <= 0 ? 0 : (delta / spanMs) * HOUR_MS })
+    const point = levels[index]
+    // 창이 리셋되면 값이 떨어진다. 소비가 아니라 초기화라 0 으로 두고 기준을 옮긴다.
+    if (point.value < anchor.value) {
+      out.push({ at: point.at, value: 0 })
+      anchor = point
+      continue
+    }
+    const spanMs = point.at - anchor.at
+    if (spanMs < MIN_RATE_SPAN_MS) continue
+    out.push({ at: point.at, value: ((point.value - anchor.value) / spanMs) * HOUR_MS })
+    anchor = point
   }
   return out
 }
