@@ -8,21 +8,29 @@ const MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
 const OPENER_MODEL = 'claude-haiku-4-5-20251001'
 const HTTP_TIMEOUT_MS = 15_000
 
+// 시계가 돌아야 하는 창. 요청 하나면 둘 다 시작되지만, 리셋 주기가 달라 한쪽만
+// 닫혀 있는 때가 온다.
+const CYCLE_WINDOWS = ['5h', '7d']
+
 /**
  * 창이 돌고 있지 않은 계정인가.
  *
  * 5h 와 7d 창은 첫 요청에서 시작한다. 안 쓰는 계정은 창이 아예 없거나(리셋 시각이
  * 없다) 닫힌 뒤 새로 열리지 않는다. 그동안은 리셋 시계가 서 있어서, 나중에 그
- * 계정을 쓰기 시작하면 그때부터 온전히 다섯 시간, 이레를 기다려야 한다. 미리
- * 열어 두면 시계가 돌아 리셋이 주기적으로 온다. 5h 를 열면 7d 도 같이 열리므로
- * 5h 만 본다.
+ * 계정을 쓰기 시작하면 그때부터 온전히 다섯 시간, 이레를 기다려야 한다.
+ *
+ * 둘을 따로 본다. 주기가 달라 5h 가 열려 있는데 7d 만 닫힌 때가 온다. 5h 만
+ * 보면 그 계정의 주간 시계는 다음에 누가 쓸 때까지 선 채로 있다.
  */
 export function needsOpening(row, now = Date.now()) {
   if (row.provider !== 'claude' || row.authFailed || !row.usage) return false
-  const short = row.usage.windows?.find((window) => window.label === '5h')
-  if (!short) return false
-  const left = msUntil(short.resetsAt, now)
-  return left == null || left <= 0
+  const windows = row.usage.windows ?? []
+  return CYCLE_WINDOWS.some((label) => {
+    const window = windows.find((entry) => entry.label === label)
+    if (!window) return true
+    const left = msUntil(window.resetsAt, now)
+    return left == null || left <= 0
+  })
 }
 
 // 만료된 지 이만큼 지난 토큰은 우리가 갱신한다. Orca 는 쓰는 계정만 갱신해서,
