@@ -4,8 +4,12 @@ import { cellWidth } from '../format.js'
 import { colorForSeries } from '../chart.js'
 
 const NAME_WIDTH = 13
-const BAR_WIDTH = 20
 const LABEL_WIDTH = 7
+// 막대 말고 한 줄이 쓰는 자리. 활성 표시와 번호, 이름, 점수, 좌우 공백, 그리고
+// 지표마다 붙는 기여도 숫자다.
+const ROW_CHROME = 2 + 1 + NAME_WIDTH - 3 + 3 + 4
+const MIN_BAR = 16
+const MAX_BAR = 44
 // 지표마다 색을 고정한다. 위 막대와 아래 가중치 줄이 같은 색이라 눈으로 이어진다.
 const PART_COLOR = { behind: '#ff9f0a', now: 'green', reserve: 'cyan' }
 const BLOCKS = { behind: '█', now: '▒', reserve: '░' }
@@ -16,10 +20,10 @@ const pad = (text, width) => text + ' '.repeat(Math.max(0, width - cellWidth(tex
 const padStart = (text, width) => ' '.repeat(Math.max(0, width - cellWidth(text))) + text
 
 /** 한 계정의 점수를 지표별로 쌓은 막대. 어느 지표가 얼마나 밀었는지가 폭이다. */
-function ScoreBar({ parts }) {
+function ScoreBar({ parts, width: barWidth }) {
   const cells = []
   for (const part of parts) {
-    const width = Math.round((part.value / 100) * BAR_WIDTH)
+    const width = Math.round((part.value / 100) * barWidth)
     for (let at = 0; at < width; at += 1) {
       cells.push(
         <Text key={`${part.key}-${at}`} color={PART_COLOR[part.key]}>{BLOCKS[part.key]}</Text>,
@@ -29,7 +33,7 @@ function ScoreBar({ parts }) {
   return (
     <>
       {cells}
-      <Text color="gray">{' '.repeat(Math.max(0, BAR_WIDTH - cells.length))}</Text>
+      <Text color="gray">{' '.repeat(Math.max(0, barWidth - cells.length))}</Text>
     </>
   )
 }
@@ -46,6 +50,8 @@ export function Score({ scored, activeId, useId, decision, selected, height, col
   const ranked = [...scored].sort((a, b) => b.score.total - a.score.total)
   const parts = ranked[0]?.score.parts ?? []
   const wide = columns >= WIDE
+  // 남는 가로를 막대가 쓴다. 좁으면 줄이고 넓으면 늘려 기여도의 차이가 보인다.
+  const barWidth = Math.min(MAX_BAR, Math.max(MIN_BAR, columns - ROW_CHROME - parts.length * 3))
   // 계정 목록, 빈 줄, 지표 넷과 그 머리글, 전환 한 줄.
   const listRows = Math.max(1, height - parts.length - 4)
   const shown = ranked.slice(0, listRows)
@@ -67,7 +73,7 @@ export function Score({ scored, activeId, useId, decision, selected, height, col
             {String(Math.round(entry.score.total)).padStart(3)}
           </Text>
           <Text color="gray">{'  '}</Text>
-          <ScoreBar parts={entry.score.parts} />
+          <ScoreBar parts={entry.score.parts} width={barWidth} />
           <Text color="gray">
             {`  ${entry.score.parts.map((part) => String(Math.round(part.value)).padStart(2)).join(' ')}`}
           </Text>

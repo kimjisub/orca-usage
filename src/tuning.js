@@ -96,12 +96,12 @@ export const TUNABLES = [
   },
   {
     key: 'weightNow',
-    label: '가중치 당장',
+    label: '가중치 단기',
     unit: '',
     min: 0,
     max: 60,
     step: 5,
-    hint: '지금 붙어 다섯 시간 동안 태울 수 있는 양',
+    hint: '5h 창에 지금 남은 양',
   },
   {
     key: 'weightReserve',

@@ -6,8 +6,6 @@ import { tuning } from './tuning.js'
 
 
 const HOUR_MS = 3_600_000
-// 5시간 창은 다섯 시간에 100% 라 최대 소비가 시간당 20%p 다.
-const SHORT_MAX_BURN = 20
 // 앞을 내다보는 창. 5시간 창 하나 길이라 "지금 붙으면 한 창 동안 얼마나 일할
 // 수 있나" 를 잰다.
 const LOOKAHEAD_H = 5
@@ -46,20 +44,6 @@ function weeklyBurn(history) {
 }
 
 
-/**
- * 앞으로 LOOKAHEAD_H 시간 동안 이 계정으로 태울 수 있는 총량.
- *
- * 지금 남은 양만 보면 5시간 창이 30분 뒤 리셋되는 계정이 손해로 보인다. 실제로는
- * 30분 뒤 쿼터가 통째로 새로 채워져 그 뒤로 계속 쓸 수 있다. 남은 양과 리셋 시각을
- * 함께 봐야 "지금 붙어서 얼마나 일할 수 있나" 가 나온다.
- */
-function reachableIn(burst, shortResetInMs) {
-  const resetAt = shortResetInMs == null ? Infinity : shortResetInMs / HOUR_MS
-  if (resetAt >= LOOKAHEAD_H) return Math.min(burst, SHORT_MAX_BURN * LOOKAHEAD_H)
-  const beforeReset = Math.min(burst, SHORT_MAX_BURN * resetAt)
-  const afterReset = Math.min(100, SHORT_MAX_BURN * (LOOKAHEAD_H - resetAt))
-  return beforeReset + afterReset
-}
 
 
 // 뒤처짐이 이만큼이면 최대로 본다. 창의 절반을 통째로 안 쓴 상태다. 100 을
@@ -98,13 +82,13 @@ function scoreOf(entry) {
     },
     {
       key: 'now',
-      label: '당장',
+      label: '단기',
       tuningKey: 'weightNow',
-      what: '지금 붙어 다섯 시간에 쓸 양',
-      how: '5h 창이 비어 있고 곧 리셋되면 크다',
-      raw: `${Math.round(entry.reachable)}%`,
+      what: '5h 창에 지금 남은 양',
+      how: '100 에서 5h 사용률을 뺀 값',
+      raw: `${Math.round(entry.burst)}%`,
       weight: weights.weightNow,
-      norm: Math.min(1, entry.reachable / 100),
+      norm: Math.min(1, entry.burst / 100),
     },
     {
       key: 'reserve',
@@ -182,8 +166,6 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
       weeklyBehind: Math.max(0, weeklyGap),
       // 창이 흐른 것보다 앞서 쓴 양(%p). 이대로 가면 리셋 전에 바닥이 난다.
       weeklyAhead: Math.max(0, -weeklyGap),
-      // 지금 붙으면 다섯 시간 동안 얼마나 태울 수 있나.
-      reachable: reachableIn(burst, shortResetIn),
     }
   }).map((entry) => ({ ...entry, score: scoreOf(entry) }))
 }
