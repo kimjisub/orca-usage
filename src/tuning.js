@@ -68,12 +68,12 @@ export const TUNABLES = [
   },
   {
     key: 'wasteAlert',
-    label: '소진 권장',
+    label: '뒤처짐 문턱',
     unit: '%p',
     min: 5,
     max: 40,
     step: 5,
-    hint: '리셋에 이만큼 넘게 버려질 판이면 알린다',
+    hint: '창이 흐른 것보다 이만큼 벌어지면 알린다',
   },
   {
     key: 'openCooldownMs',

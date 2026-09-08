@@ -4,9 +4,6 @@ import { tuning } from './tuning.js'
 
 
 
-// 5시간 창은 꽉 채우는 일이 드물어 늘 얼마쯤 버려진다. 상시로 뜨면 신호가
-// 안 되므로 정렬에는 쓰되 이유로 내세우는 문턱은 훨씬 높게 잡는다.
-const SHORT_WASTE_ALERT = 45
 
 const HOUR_MS = 3_600_000
 // 5시간 창은 다섯 시간에 100% 라 최대 소비가 시간당 20%p 다.
@@ -20,9 +17,6 @@ const WEEKLY_PER_SHORT_WINDOW = 20
 // 그래서 7일 창을 태우는 최대 속도는 정해져 있다. 5시간에 20%p, 시간당 4%p 다.
 // 관측 속도가 이보다 클 수 없으므로 하한이 아니라 상한이다.
 export const WEEKLY_MAX_BURN = WEEKLY_PER_SHORT_WINDOW / LOOKAHEAD_H
-// 리셋 전에 다 쓰려면 최대 속도의 이만큼을 넘게 태워야 하는 계정은 급한 것으로
-// 본다. 그 아래는 가만 둬도 다 쓸 수 있어 순위를 가를 근거가 못 된다.
-const RELAXED_RATIO = 0.5
 
 const windowOf = (row, label) => (row.usage?.windows ?? []).find((w) => w.label === label)
 
@@ -51,20 +45,6 @@ function weeklyBurn(history) {
   return Math.max(0, last['7d'] - first['7d']) / hours
 }
 
-/**
- * 리셋 전에 다 쓰려면 시간당 몇 %p 를 태워야 하는가.
- *
- * 남은 양만 보면 리셋이 이틀 뒤인 계정과 엿새 뒤인 계정이 같아 보인다. 남은
- * 시간으로 나누면 어느 쪽을 먼저 태워야 하는지가 하나의 수로 나온다. 여력이
- * 클수록, 리셋이 가까울수록 커진다.
- */
-function burnNeeded(remaining, msLeft) {
-  // 리셋 시각을 모르는 것은 창을 아직 안 열었다는 뜻이다. 급할 것이 없으니 0
-  // 이다. Infinity 로 두면 정보가 가장 적은 계정이 늘 1순위가 된다.
-  if (msLeft == null) return 0
-  if (msLeft <= 0) return Infinity
-  return remaining / (msLeft / HOUR_MS)
-}
 
 /**
  * 앞으로 LOOKAHEAD_H 시간 동안 이 계정으로 태울 수 있는 총량.
@@ -81,18 +61,6 @@ function reachableIn(burst, shortResetInMs) {
   return beforeReset + afterReset
 }
 
-/**
- * 리셋 전에 다 못 쓰고 버려질 양.
- *
- * 남은 쿼터가 많아도 리셋이 코앞이면 대부분 사라진다. 그 양이 클수록 지금
- * 그 계정을 태우는 것이 이득이다. 반대로 리셋이 멀면 버려질 것이 없으니
- * 아껴 두어도 손해가 아니다.
- */
-function wastedIfIdle(remaining, msLeft, maxBurn) {
-  if (msLeft == null || msLeft <= 0 || maxBurn <= 0) return 0
-  const reachable = maxBurn * (msLeft / HOUR_MS)
-  return Math.max(0, remaining - reachable)
-}
 
 // 뒤처짐이 이만큼이면 최대로 본다. 창의 절반을 통째로 안 쓴 상태다. 100 을
 // 기준으로 삼으면 현실에서 나오는 10~30%p 가 0.1~0.3 으로 눌려, 여력 같은
@@ -185,7 +153,8 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
 
     const burst = 100 - shortPct
     const reserve = 100 - weeklyPct
-    const shortNeed = burnNeeded(burst, shortResetIn)
+    // 주간 창이 흐른 비율과 실제 사용률의 차. 양수면 뒤처졌고 음수면 앞서 썼다.
+    const weeklyGap = (elapsedRatio('7d', weekly?.resetsAt, now) ?? 0) * 100 - weeklyPct
 
     return {
       row,
@@ -210,19 +179,9 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
       runwayHours: burn > 0 ? reserve / burn : null,
       // 주간 창이 흐른 만큼 안 쓴 양(%p). 창의 절반이 지났는데 20% 만 썼으면
       // 30 이다. 앞서 썼으면 0 이고 그때는 아껴 둘 계정이다.
-      weeklyBehind: Math.max(0, (elapsedRatio('7d', weekly?.resetsAt, now) ?? 0) * 100 - weeklyPct),
-      shortWaste: wastedIfIdle(burst, shortResetIn, SHORT_MAX_BURN),
-      weeklyWaste: wastedIfIdle(reserve, weeklyResetIn, WEEKLY_MAX_BURN),
-      // 리셋까지 다 쓰려면 시간당 얼마를 태워야 하는가. 클수록 먼저 손대야 한다.
-      shortNeed,
-      weeklyNeed: burnNeeded(reserve, weeklyResetIn),
-      // 그 속도를 낼 수 있는 최대 속도와 견준 값. 여유로운 계정끼리는 0 으로
-      // 눕혀 나란히 둔다. 넷 다 넉넉한 상황에서도 값이 늘 달라 여기서 결판이
-      // 나면, 정작 "지금 붙으면 얼마나 일할 수 있나" 를 못 본다.
-      weeklyUrgency: (() => {
-        const ratio = burnNeeded(reserve, weeklyResetIn) / WEEKLY_MAX_BURN
-        return ratio >= RELAXED_RATIO ? ratio : 0
-      })(),
+      weeklyBehind: Math.max(0, weeklyGap),
+      // 창이 흐른 것보다 앞서 쓴 양(%p). 이대로 가면 리셋 전에 바닥이 난다.
+      weeklyAhead: Math.max(0, -weeklyGap),
       // 지금 붙으면 다섯 시간 동안 얼마나 태울 수 있나.
       reachable: reachableIn(burst, shortResetIn),
     }
@@ -231,11 +190,8 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
 
 /** 왜 이 계정인지 한 줄로. 근거가 없으면 추천도 못 믿는다. */
 function reasonFor(entry) {
-  if (entry.weeklyWaste >= tuning().wasteAlert) {
-    return `주간 ${Math.round(entry.weeklyWaste)}% 소멸 임박`
-  }
-  if (entry.shortWaste >= SHORT_WASTE_ALERT) {
-    return `5h ${Math.round(entry.shortWaste)}% 소멸 임박`
+  if (entry.weeklyBehind >= tuning().wasteAlert) {
+    return `주간 ${Math.round(entry.weeklyBehind)}%p 뒤처짐`
   }
   return `주간 ${Math.round(entry.reserve)}%  5h ${Math.round(entry.burst)}% 남음`
 }
@@ -266,22 +222,20 @@ export function advise(rows, historyById, now = Date.now()) {
     .filter((entry) => !entry.weeklyBlocked && !entry.authFailed)
     .sort((a, b) => b.reserve - a.reserve || b.burst - a.burst)[0] ?? null
 
-  // 아껴 둘 계정은 주간을 많이 썼으면서 리셋이 아직 먼 쪽이다. 리셋이 코앞이면
-  // 남은 몫이 어차피 사라지므로 아끼는 것이 오히려 손해다. 그 판단이 곧
-  // weeklyUrgency 다. 리셋까지 부지런히 태워야 다 쓰는 계정을 아끼라고 말하면
-  // 안 쓴 몫이 그대로 사라진다.
+  // 아껴 둘 계정은 창이 흐른 것보다 앞서 쓴 쪽이다. 이대로 가면 리셋 전에
+  // 바닥이 난다. 많이 썼다는 것만으로는 모자란다. 리셋이 코앞이면 남은 몫이
+  // 어차피 사라져 아끼는 것이 오히려 손해라서다.
   const avoid = [...scored]
     .filter((entry) => entry.weeklyPct >= tuning().spareAt
-      && entry.weeklyWaste < tuning().wasteAlert
-      && entry.weeklyUrgency === 0)
-    .sort((a, b) => b.weeklyPct - a.weeklyPct)[0] ?? null
+      && entry.weeklyAhead >= tuning().wasteAlert)
+    .sort((a, b) => b.weeklyAhead - a.weeklyAhead)[0] ?? null
 
   // 계정마다 배지 하나. 겹치면 급한 쪽이 이긴다. 막힌 것을 먼저 알려야 하고,
   // 소멸 임박은 지금 안 하면 사라지므로 단순 추천보다 급하다.
   const badges = {}
   for (const entry of scored) {
     if (entry.shortBlocked || entry.weeklyBlocked) badges[entry.row.id] = 'blocked'
-    else if (entry.weeklyWaste >= tuning().wasteAlert) badges[entry.row.id] = 'spurt'
+    else if (entry.weeklyBehind >= tuning().wasteAlert) badges[entry.row.id] = 'spurt'
   }
   if (use && !badges[use.row.id]) badges[use.row.id] = 'use'
   if (avoid && !badges[avoid.row.id]) badges[avoid.row.id] = 'spare'

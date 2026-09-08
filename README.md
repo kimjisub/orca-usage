@@ -89,8 +89,8 @@ Arrow keys or `j` / `k` move the selection. Clicking a row works too.
 | 한도 임박 | 5h or 7d is at 90% or more, so it is unusable for now |
 | Red name | Credentials are broken; sign in again. The reason is printed next to the name |
 | 우선 사용 | Best account to be on |
-| 소진 권장 | Weekly quota large enough that it will expire unused; spend it |
-| 사용 자제 | More than half the week is gone; save this one |
+| 소진 권장 | Behind its own window's clock; spend it |
+| 사용 자제 | Ahead of the clock; at this rate it runs out before the reset |
 | 리셋 크레딧 | Codex only. Spending one empties the short window straight away |
 
 ## Automatic switching
