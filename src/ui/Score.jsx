@@ -7,8 +7,8 @@ const NAME_WIDTH = 13
 const BAR_WIDTH = 20
 const LABEL_WIDTH = 7
 // 지표마다 색을 고정한다. 위 막대와 아래 가중치 줄이 같은 색이라 눈으로 이어진다.
-const PART_COLOR = { waste: 'red', urgency: '#ff9f0a', now: 'green', reserve: 'cyan' }
-const BLOCKS = { waste: '█', urgency: '▓', now: '▒', reserve: '░' }
+const PART_COLOR = { behind: '#ff9f0a', now: 'green', reserve: 'cyan' }
+const BLOCKS = { behind: '█', now: '▒', reserve: '░' }
 // 설명까지 한 줄에 넣으려면 이만큼은 있어야 한다.
 const WIDE = 74
 
@@ -37,7 +37,7 @@ function ScoreBar({ parts }) {
 /**
  * 왜 이 계정인지, 그리고 그 판단을 어떻게 바꾸는지.
  *
- * 점수는 네 지표를 0 부터 1 로 눕히고 가중치를 곱해 더한 값이다. 예전에는 두
+ * 점수는 세 지표를 0 부터 1 로 눕히고 가중치를 곱해 더한 값이다. 예전에는 두
  * 글자 이름과 숫자만 있어서 무엇을 재는 값인지 화면만 봐서는 알 수 없었다.
  * 지표마다 무엇을 재는지와 계정별 원값을 함께 적고, 이 화면에서 바로 가중치를
  * 옮길 수 있게 했다.
@@ -54,7 +54,7 @@ export function Score({ scored, activeId, useId, decision, selected, height, col
     <Box flexDirection="column">
       <Text wrap="truncate">
         <Text color="white">{'판정'}</Text>
-        <Text color="gray">{'  네 지표에 가중치를 곱해 더한 점수다'}</Text>
+        <Text color="gray">{'  세 지표에 가중치를 곱해 더한 점수다'}</Text>
       </Text>
       {shown.map((entry) => (
         <Text key={entry.row.id} wrap="truncate">

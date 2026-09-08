@@ -555,10 +555,18 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     nudgeKey(TUNABLES[tuneAt]?.key, direction)
   }, [nudgeKey, tuneAt])
   // 판정 화면의 지표 넷은 가중치 항목과 순서가 같다.
-  const WEIGHT_KEYS = ['weightWaste', 'weightUrgency', 'weightNow', 'weightReserve']
+  const WEIGHT_KEYS = ['weightBehind', 'weightNow', 'weightReserve']
   const nudgeWeight = useCallback((direction) => {
     nudgeKey(WEIGHT_KEYS[scoreAt], direction)
   }, [nudgeKey, scoreAt])
+
+  /** 탭을 한 칸 옮긴다. 끝에서는 반대편으로 돈다. */
+  const stepTab = useCallback((direction) => {
+    setGraphMode((value) => {
+      const at = GRAPH_TABS.findIndex((tab) => tab.mode === value)
+      return GRAPH_TABS[(at + direction + GRAPH_TABS.length) % GRAPH_TABS.length].mode
+    })
+  }, [])
 
   const runAction = useCallback((key) => {
     if (key === 'r') doRefresh()
@@ -599,14 +607,9 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
         })
       }
     }
-    else if (key === 'd') {
-      setGraphMode((value) => {
-        const at = GRAPH_TABS.findIndex((tab) => tab.mode === value)
-        return GRAPH_TABS[(at + 1) % GRAPH_TABS.length].mode
-      })
-    }
+    else if (key === 'd') stepTab(1)
     else if (key === 'q') exit()
-  }, [doRefresh, doToken, exit, notify])
+  }, [doRefresh, doToken, exit, notify, stepTab])
 
   useInput((input, key) => {
     // 마우스 리포팅을 켜 두면 클릭 좌표가 `[<0;100;12M` 같은 문자열로 여기
@@ -621,6 +624,12 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     if (key.return) return switchToSelected()
     // 설정 화면에서는 위아래가 항목을, 좌우가 값을 옮긴다. 계정 목록은 그동안
     // 그대로 있고 화살표만 이쪽으로 간다.
+    // 좌우는 탭을 옮긴다. 값을 옮기는 화면에서는 그쪽이 먼저라 d 로 옮긴다.
+    const tunes = graphMode === 'settings' || graphMode === 'score'
+    if (!tunes) {
+      if (key.leftArrow) return stepTab(-1)
+      if (key.rightArrow) return stepTab(1)
+    }
     if (graphMode === 'settings') {
       if (key.downArrow) return setTuneAt((at) => Math.min(TUNABLES.length - 1, at + 1))
       if (key.upArrow) return setTuneAt((at) => Math.max(0, at - 1))

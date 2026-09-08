@@ -1,4 +1,4 @@
-import { msUntil } from './format.js'
+import { elapsedRatio, msUntil } from './format.js'
 import { tuning } from './tuning.js'
 
 
@@ -94,45 +94,39 @@ function wastedIfIdle(remaining, msLeft, maxBurn) {
   return Math.max(0, remaining - reachable)
 }
 
-// 급함 1 은 리셋까지 최대 속도로 달려야 겨우 다 쓴다는 뜻이다. 그보다 급한 것은
-// 이미 다 못 쓰는 영역이고 그 몫은 소멸 지표가 잡으므로 여기서 끊는다.
-const URGENCY_FULL = 1
+// 뒤처짐이 이만큼이면 최대로 본다. 창의 절반을 통째로 안 쓴 상태다. 100 을
+// 기준으로 삼으면 현실에서 나오는 10~30%p 가 0.1~0.3 으로 눌려, 여력 같은
+// 지표에 늘 밀린다.
+const BEHIND_FULL = 50
 
 /**
  * 지금 붙기 좋은 정도를 하나의 점수로 낸다.
  *
- * 예전에는 소멸, 급함, 당장, 여력을 이 순서로 놓고 앞이 갈리면 뒤를 안 봤다.
- * 그래서 1%p 가 버려질 판이라는 것만으로 다섯 시간에 20% 밖에 못 쓰는 계정이
- * 뽑혔다. 네 지표를 0 부터 1 로 눕히고 가중치를 곱해 더하면 그런 일이 없고,
- * 어느 지표가 얼마나 밀었는지도 숫자로 남아 화면에 그릴 수 있다.
+ * 세 가지를 본다. 창이 흐른 만큼 안 썼는가, 지금 붙으면 얼마나 일할 수 있는가,
+ * 그리고 주간에 얼마가 남았는가. 서로 다른 것을 재므로 하나가 크다고 다른
+ * 것이 따라 커지지 않는다.
+ *
+ * 예전에는 소멸과 급함을 따로 세었는데 둘은 같은 값이었다. 소멸은
+ * 최대속도 x 남은시간 x (급함 - 1) 이라, 소멸이 0 보다 크다는 것과 급함이 1 을
+ * 넘는다는 것이 같은 말이다. 지표 넷 중 둘이 같은 것을 재고 있었다.
  *
  * 가중치 합으로 나누므로 점수는 늘 0 부터 100 이다. 사람이 가중치를 바꿔도
  * 눈금이 그대로다.
  *
- * @returns {{total: number, parts: {key: string, label: string, value: number}[]}}
+ * @returns {{total: number, parts: object[]}}
  */
 function scoreOf(entry) {
   const weights = tuning()
   const items = [
     {
-      key: 'waste',
-      label: '소멸',
-      tuningKey: 'weightWaste',
-      what: '리셋에 버려질 양',
-      how: '최대 속도로 태워도 남는 몫',
-      raw: `${Math.round(entry.weeklyWaste)}%`,
-      weight: weights.weightWaste,
-      norm: Math.min(1, entry.weeklyWaste / 100),
-    },
-    {
-      key: 'urgency',
-      label: '급함',
-      tuningKey: 'weightUrgency',
-      what: '리셋까지 얼마나 달려야 하나',
-      how: '필요한 속도 / 낼 수 있는 최대',
-      raw: `${Math.round(entry.weeklyUrgency * 100)}%`,
-      weight: weights.weightUrgency,
-      norm: Math.min(1, entry.weeklyUrgency / URGENCY_FULL),
+      key: 'behind',
+      label: '뒤처짐',
+      tuningKey: 'weightBehind',
+      what: '주간 창이 흐른 만큼 안 쓴 양',
+      how: `경과 비율에서 사용률을 뺀 값. ${BEHIND_FULL}%p 면 최대`,
+      raw: `${Math.round(entry.weeklyBehind)}%p`,
+      weight: weights.weightBehind,
+      norm: Math.min(1, entry.weeklyBehind / BEHIND_FULL),
     },
     {
       key: 'now',
@@ -214,6 +208,9 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
       burn,
       // 이 속도로 계속 태우면 주간 여력이 몇 시간 남았나.
       runwayHours: burn > 0 ? reserve / burn : null,
+      // 주간 창이 흐른 만큼 안 쓴 양(%p). 창의 절반이 지났는데 20% 만 썼으면
+      // 30 이다. 앞서 썼으면 0 이고 그때는 아껴 둘 계정이다.
+      weeklyBehind: Math.max(0, (elapsedRatio('7d', weekly?.resetsAt, now) ?? 0) * 100 - weeklyPct),
       shortWaste: wastedIfIdle(burst, shortResetIn, SHORT_MAX_BURN),
       weeklyWaste: wastedIfIdle(reserve, weeklyResetIn, WEEKLY_MAX_BURN),
       // 리셋까지 다 쓰려면 시간당 얼마를 태워야 하는가. 클수록 먼저 손대야 한다.
