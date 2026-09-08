@@ -114,16 +114,57 @@ const URGENCY_FULL = 1
 function scoreOf(entry) {
   const weights = tuning()
   const items = [
-    { key: 'waste', label: '소멸', weight: weights.weightWaste, norm: Math.min(1, entry.weeklyWaste / 100) },
-    { key: 'urgency', label: '급함', weight: weights.weightUrgency, norm: Math.min(1, entry.weeklyUrgency / URGENCY_FULL) },
-    { key: 'now', label: '당장', weight: weights.weightNow, norm: Math.min(1, entry.reachable / 100) },
-    { key: 'reserve', label: '여력', weight: weights.weightReserve, norm: Math.min(1, entry.reserve / 100) },
+    {
+      key: 'waste',
+      label: '소멸',
+      tuningKey: 'weightWaste',
+      what: '리셋에 버려질 양',
+      how: '최대 속도로 태워도 남는 몫',
+      raw: `${Math.round(entry.weeklyWaste)}%`,
+      weight: weights.weightWaste,
+      norm: Math.min(1, entry.weeklyWaste / 100),
+    },
+    {
+      key: 'urgency',
+      label: '급함',
+      tuningKey: 'weightUrgency',
+      what: '리셋까지 얼마나 달려야 하나',
+      how: '필요한 속도 / 낼 수 있는 최대',
+      raw: `${Math.round(entry.weeklyUrgency * 100)}%`,
+      weight: weights.weightUrgency,
+      norm: Math.min(1, entry.weeklyUrgency / URGENCY_FULL),
+    },
+    {
+      key: 'now',
+      label: '당장',
+      tuningKey: 'weightNow',
+      what: '지금 붙어 다섯 시간에 쓸 양',
+      how: '5h 창이 비어 있고 곧 리셋되면 크다',
+      raw: `${Math.round(entry.reachable)}%`,
+      weight: weights.weightNow,
+      norm: Math.min(1, entry.reachable / 100),
+    },
+    {
+      key: 'reserve',
+      label: '여력',
+      tuningKey: 'weightReserve',
+      what: '주간에 남은 양',
+      how: '100 에서 7d 사용률을 뺀 값',
+      raw: `${Math.round(entry.reserve)}%`,
+      weight: weights.weightReserve,
+      norm: Math.min(1, entry.reserve / 100),
+    },
   ]
   const sum = items.reduce((total, item) => total + item.weight, 0)
   if (sum <= 0) return { total: 0, parts: items.map((item) => ({ ...item, value: 0 })) }
   const parts = items.map((item) => ({
     key: item.key,
     label: item.label,
+    tuningKey: item.tuningKey,
+    what: item.what,
+    how: item.how,
+    // 정규화 전 값. 점수가 왜 그런지는 이것과 가중치를 함께 봐야 안다.
+    raw: item.raw,
     weight: item.weight,
     value: (item.weight * item.norm / sum) * 100,
   }))

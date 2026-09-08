@@ -257,6 +257,8 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   // 하려고 사본을 둔다.
   const [tuned, setTuned] = useState(() => applyTuning(saved.tuning))
   const [tuneAt, setTuneAt] = useState(0)
+  // 판정 화면에서 고른 지표. 설정 화면의 항목 선택과 따로 둔다.
+  const [scoreAt, setScoreAt] = useState(0)
   // 폴링 안에서 읽으므로 ref 로도 들고 있는다. 의존성에 넣으면 기록이 쌓일 때마다
   // 폴링 타이머가 다시 걸린다.
   const logRef = useRef(logEntries)
@@ -540,15 +542,23 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     }
   }, [rows, selected, activeIds, notify, poll])
 
-  /** 고른 항목의 값을 옮긴다. 범위 밖은 applyTuning 이 잘라 준다. */
-  const nudge = useCallback((direction) => {
-    const item = TUNABLES[tuneAt]
+  /** 값을 한 칸 옮긴다. 범위 밖은 applyTuning 이 잘라 준다. */
+  const nudgeKey = useCallback((key, direction) => {
+    const item = TUNABLES.find((entry) => entry.key === key)
     if (!item) return
     const next = direction === 0
       ? TUNING_DEFAULTS[item.key]
       : tuning()[item.key] + item.step * direction
     setTuned({ ...applyTuning({ [item.key]: next }) })
-  }, [tuneAt])
+  }, [])
+  const nudge = useCallback((direction) => {
+    nudgeKey(TUNABLES[tuneAt]?.key, direction)
+  }, [nudgeKey, tuneAt])
+  // 판정 화면의 지표 넷은 가중치 항목과 순서가 같다.
+  const WEIGHT_KEYS = ['weightWaste', 'weightUrgency', 'weightNow', 'weightReserve']
+  const nudgeWeight = useCallback((direction) => {
+    nudgeKey(WEIGHT_KEYS[scoreAt], direction)
+  }, [nudgeKey, scoreAt])
 
   const runAction = useCallback((key) => {
     if (key === 'r') doRefresh()
@@ -617,6 +627,14 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       if (key.leftArrow) return nudge(-1)
       if (key.rightArrow) return nudge(1)
     }
+    // 판정 화면에서도 같은 손놀림으로 가중치를 옮긴다. 순위가 바뀌는 것을 보면서
+    // 맞추는 자리라 설정 화면까지 다녀오게 하면 감이 끊긴다.
+    if (graphMode === 'score') {
+      if (key.downArrow) return setScoreAt((at) => Math.min(WEIGHT_KEYS.length - 1, at + 1))
+      if (key.upArrow) return setScoreAt((at) => Math.max(0, at - 1))
+      if (key.leftArrow) return nudgeWeight(-1)
+      if (key.rightArrow) return nudgeWeight(1)
+    }
     if (key.downArrow) return setSelected((i) => Math.min(rows.length - 1, i + 1))
     if (key.upArrow) return setSelected((i) => Math.max(-1, i - 1))
     // 빠른 연타나 붙여넣기는 여러 글자가 한 번에 들어온다. 글자마다 처리해야
@@ -625,6 +643,13 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       // 빠른 연타나 붙여넣기로 여러 글자가 한 입력에 실려 오면 ink 가 특수키
       // 판정을 하지 않는다. 개행도 여기서 직접 받아야 엔터가 묻히지 않는다.
       if (char === '\r' || char === '\n') switchToSelected()
+      else if (graphMode === 'score' && 'jkhl0'.includes(char)) {
+        if (char === 'j') setScoreAt((at) => Math.min(WEIGHT_KEYS.length - 1, at + 1))
+        else if (char === 'k') setScoreAt((at) => Math.max(0, at - 1))
+        else if (char === 'h') nudgeWeight(-1)
+        else if (char === 'l') nudgeWeight(1)
+        else nudgeWeight(0)
+      }
       else if (graphMode === 'settings' && 'jkhl0'.includes(char)) {
         if (char === 'j') setTuneAt((at) => Math.min(TUNABLES.length - 1, at + 1))
         else if (char === 'k') setTuneAt((at) => Math.max(0, at - 1))
@@ -858,7 +883,9 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
                 activeId={activeIds.claude}
                 useId={tip?.use?.row.id}
                 decision={decision}
+                selected={scoreAt}
                 height={layout.graphHeight - 1}
+                columns={graphWidth}
               />
               )
             : graphMode === 'settings'
