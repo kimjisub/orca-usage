@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { restoreOnExit } from './terminal.js'
 
 // SGR 마우스 리포팅. 1000 은 누름과 뗌, 1006 은 좌표를 열 번호로 받는 확장이라
 // 80열을 넘는 화면에서도 자리가 어긋나지 않는다.
@@ -13,12 +14,10 @@ export function useMouseReporting(enabled = true) {
   useEffect(() => {
     if (!enabled || !process.stdin.isTTY) return undefined
     process.stdout.write(ENABLE)
+    // 켠 채로 죽으면 그 터미널은 클릭할 때마다 좌표 문자열을 뱉는다.
     const restore = () => process.stdout.write(DISABLE)
-    process.on('exit', restore)
-    return () => {
-      process.off('exit', restore)
-      restore()
-    }
+    restoreOnExit(restore)
+    return () => restore()
   }, [enabled])
 }
 

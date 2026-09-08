@@ -67,6 +67,7 @@ const HELP = `orca-usage - Orca 가 관리하는 Claude 와 Codex 계정들의 �
   o  사이클 자동트리거 켜기/끄기
   s  설정                ?  도움말
   g  그래프 접기/펼치기  q  종료
+  Ctrl+C 와 Esc 는 두 번 눌러야 끝납니다. q 는 한 번에 끝냅니다
   위아래 또는 j k 로 선택하고, 숫자키로 바로 고릅니다. 클릭도 됩니다.
   Enter 를 누르면 고른 계정으로 Orca 를 옮깁니다.
 
@@ -201,7 +202,9 @@ async function main() {
 
   const app = render(
     <App intervalMs={options.intervalMs} allowRefresh={options.allowRefresh} graphStyle={options.graphStyle} />,
-    { exitOnCtrlC: true },
+    // Ctrl+C 는 우리가 받는다. ink 에 맡기면 한 번에 끝나 실수로 누른 것과
+    // 끄려는 것이 구분되지 않는다.
+    { exitOnCtrlC: false },
   )
   await app.waitUntilExit()
 }

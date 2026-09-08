@@ -29,6 +29,8 @@ const HEADER_ROWS = 2
 // 활성 계정만 따로 확인하는 주기. 사용량 조회와 달리 소켓 한 번이라 가볍고,
 // Orca 에서 손으로 바꾼 것이 화면에 늦게 뜨면 어느 계정으로 도는지 헷갈린다.
 const ACTIVE_POLL_MS = 5000
+// 종료를 되묻는 시간. 이 안에 다시 누르면 끝낸다.
+const QUIT_WINDOW_MS = 3000
 // 섹션 머리글. 계정 수와 창 구조가 provider 마다 달라 목록을 갈라 세운다.
 const PROVIDER_LABEL = { claude: 'Claude', codex: 'Codex' }
 // 오른쪽 패널이 보여줄 것. d 가 이 순서로 돌고 탭도 이 순서다.
@@ -327,6 +329,9 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const running = useRef(false)
   const timer = useRef(null)
 
+  // Ctrl+C 와 Esc 는 되묻는다. 둘 다 다른 일을 하다 손이 미끄러지기 쉬운 자리이고,
+  // Esc 는 알 수 없는 이스케이프 시퀀스가 들어와도 눌린 것처럼 보인다.
+  const quitAt = useRef(0)
   const messageTimer = useRef(null)
   const notify = useCallback((text) => {
     setMessage(text)
@@ -620,7 +625,12 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       if (click) onClick(click.row, click.column)
       return
     }
-    if (key.escape || (key.ctrl && input === 'c')) return exit()
+    if (key.escape || (key.ctrl && input === 'c')) {
+      const at = Date.now()
+      if (at - quitAt.current < QUIT_WINDOW_MS) return exit()
+      quitAt.current = at
+      return notify('한 번 더 누르면 종료합니다. q 는 바로 끝냅니다')
+    }
     if (key.return) return switchToSelected()
     // 설정 화면에서는 위아래가 항목을, 좌우가 값을 옮긴다. 계정 목록은 그동안
     // 그대로 있고 화살표만 이쪽으로 간다.

@@ -76,7 +76,7 @@ orca-usage --graph block       draw level lines with box characters instead of b
 | `s` | Settings | `?` | Help |
 | `w` | Cycle the range (3h to 1M) | `a` | Toggle automatic switching |
 | `g` | Collapse or expand the graph | `o` | Toggle cycle auto-trigger |
-| `q` | Quit | | |
+| `q` | Quit | `Ctrl+C` / `Esc` | Quit, twice within three seconds |
 | `Enter` | Point Orca at the selected account | `1`-`9` | Jump to an account |
 
 Arrow keys or `j` / `k` move the selection. Clicking a row works too.
