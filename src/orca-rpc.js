@@ -6,6 +6,21 @@ import { HOME } from './paths.js'
 const METADATA_PATH = path.join(HOME, 'Library/Application Support/orca/orca-runtime.json')
 const TIMEOUT_MS = 10_000
 
+export const CODEX_SYSTEM_DEFAULT_ID = 'codex:system-default'
+
+/** 현재 호스트에서 쓰는 Codex 계정을 화면용 id 로 맞춘다. */
+export function codexActiveAccountId(codex) {
+  const hostId = codex?.activeAccountIdsByRuntime?.host
+  const managedId = hostId !== undefined ? hostId : codex?.activeAccountId
+  if (managedId) return managedId
+  return codex?.systemDefault?.hasAuth ? CODEX_SYSTEM_DEFAULT_ID : null
+}
+
+/** 화면용 기본 계정 id 를 Orca RPC 가 요구하는 null 로 되돌린다. */
+export function codexRpcAccountId(accountId) {
+  return accountId === CODEX_SYSTEM_DEFAULT_ID ? null : accountId
+}
+
 /**
  * Orca 런타임에 직접 RPC 를 건다.
  *
@@ -96,7 +111,7 @@ export async function activeAccountIds() {
   const result = await call('accounts.list', { refreshUsage: false })
   return {
     claude: result?.claude?.activeAccountId ?? null,
-    codex: result?.codex?.activeAccountId ?? null,
+    codex: codexActiveAccountId(result?.codex),
   }
 }
 
