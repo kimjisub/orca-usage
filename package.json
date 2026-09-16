@@ -31,6 +31,7 @@
   "scripts": {
     "start": "bun run src/cli.jsx",
     "once": "bun run src/cli.jsx --once",
+    "test": "bun test",
     "build": "esbuild src/cli.jsx --bundle --platform=node --format=esm --outfile=bin/orca-usage.js --packages=external --banner:js='#!/usr/bin/env node'"
   },
   "dependencies": {

@@ -1,4 +1,9 @@
-import { call } from './orca-rpc.js'
+import {
+  CODEX_SYSTEM_DEFAULT_ID,
+  call,
+  codexActiveAccountId,
+  codexRpcAccountId,
+} from './orca-rpc.js'
 
 /**
  * 계정과 사용량을 Orca 에서 받는다.
@@ -73,15 +78,53 @@ function entryOf(rateLimits) {
 }
 
 /** provider 하나의 계정 id 별 한도. 활성 계정은 목록이 아니라 위쪽에 따로 실려 온다. */
-function limitsById(payload, provider) {
+function limitsById(payload, provider, activeId = payload?.[provider]?.activeAccountId) {
   const byId = new Map()
   const inactiveKey = provider === 'claude' ? 'inactiveClaudeAccounts' : 'inactiveCodexAccounts'
   for (const entry of payload?.rateLimits?.[inactiveKey] ?? []) {
     if (entry?.accountId) byId.set(entry.accountId, entry.rateLimits)
   }
-  const activeId = payload?.[provider]?.activeAccountId
   if (activeId && payload?.rateLimits?.[provider]) byId.set(activeId, payload.rateLimits[provider])
   return byId
+}
+
+/** accounts.list 응답을 화면과 폴러가 쓰는 provider별 구조로 바꾼다. */
+export function normalizeOrcaLimits(payload) {
+  const claudeActiveId = payload?.claude?.activeAccountId ?? null
+  const codexActiveId = codexActiveAccountId(payload?.codex)
+
+  const claudeById = new Map()
+  for (const [id, rateLimits] of limitsById(payload, 'claude', claudeActiveId)) {
+    claudeById.set(id, entryOf(rateLimits))
+  }
+
+  const codexById = new Map()
+  for (const [id, rateLimits] of limitsById(payload, 'codex', codexActiveId)) {
+    codexById.set(id, entryOf(rateLimits))
+  }
+  const codexAccounts = (payload?.codex?.accounts ?? []).map((account) => ({
+    id: account.id,
+    email: account.email ?? account.id.slice(0, 8),
+    provider: 'codex',
+    // Codex 는 요금제를 알려 주지 않는다. 자리를 비워 두면 이름 뒤가 깔끔하다.
+    label: '',
+    ...(codexById.get(account.id) ?? entryOf(null)),
+  }))
+  const systemDefault = payload?.codex?.systemDefault
+  if (systemDefault?.hasAuth) {
+    codexAccounts.push({
+      id: CODEX_SYSTEM_DEFAULT_ID,
+      email: systemDefault.email ?? 'System default',
+      provider: 'codex',
+      label: systemDefault.workspaceLabel ?? 'System default',
+      ...(codexById.get(CODEX_SYSTEM_DEFAULT_ID) ?? entryOf(null)),
+    })
+  }
+
+  return {
+    claude: { activeId: claudeActiveId, byId: claudeById },
+    codex: { activeId: codexActiveId, byId: codexById, accounts: codexAccounts },
+  }
 }
 
 /**
@@ -93,26 +136,7 @@ function limitsById(payload, provider) {
  * }>}
  */
 export async function fetchOrcaLimits({ refreshUsage = false } = {}) {
-  const payload = await call('accounts.list', { refreshUsage })
-
-  const claudeById = new Map()
-  for (const [id, rateLimits] of limitsById(payload, 'claude')) claudeById.set(id, entryOf(rateLimits))
-
-  const codexById = new Map()
-  for (const [id, rateLimits] of limitsById(payload, 'codex')) codexById.set(id, entryOf(rateLimits))
-  const codexAccounts = (payload?.codex?.accounts ?? []).map((account) => ({
-    id: account.id,
-    email: account.email ?? account.id.slice(0, 8),
-    provider: 'codex',
-    // Codex 는 요금제를 알려 주지 않는다. 자리를 비워 두면 이름 뒤가 깔끔하다.
-    label: '',
-    ...(codexById.get(account.id) ?? entryOf(null)),
-  }))
-
-  return {
-    claude: { activeId: payload?.claude?.activeAccountId ?? null, byId: claudeById },
-    codex: { activeId: payload?.codex?.activeAccountId ?? null, byId: codexById, accounts: codexAccounts },
-  }
+  return normalizeOrcaLimits(await call('accounts.list', { refreshUsage }))
 }
 
 /** Codex 계정 목록만. 계정을 세울 때 쓴다. */
@@ -123,5 +147,5 @@ export async function fetchCodex({ refreshUsage = false } = {}) {
 
 /** Orca 의 활성 Codex 계정을 바꾼다. */
 export async function selectCodexAccount(accountId) {
-  await call('accounts.selectCodex', { accountId })
+  await call('accounts.selectCodex', { accountId: codexRpcAccountId(accountId) })
 }
