@@ -24,6 +24,7 @@ const DEFAULTS = {
   autoSwitch: false,
   keepAlive: false,
   tuning: {},
+  hiddenIds: [],
   selectedId: null,
   lastSwitchAt: 0,
 }
@@ -45,6 +46,10 @@ export function loadSettings() {
       merged.rangeIndex = DEFAULTS.rangeIndex
     }
     if (!GRAPH_MODES.has(merged.graphMode)) merged.graphMode = DEFAULTS.graphMode
+    // 손으로 고친 파일이 배열 아닌 것을 넣었을 수 있다. 문자열만 받는다.
+    merged.hiddenIds = Array.isArray(merged.hiddenIds)
+      ? merged.hiddenIds.filter((id) => typeof id === 'string')
+      : []
     return merged
   } catch {
     return { ...DEFAULTS }

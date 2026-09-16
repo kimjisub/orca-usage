@@ -41,7 +41,7 @@ function staleTag(row, now, staleAfterMs) {
 }
 
 export function AccountBlock({
-  row, active, selected, now, barWidth, showModelWindows, staleAfterMs, badge,
+  row, active, dimmed, selected, now, barWidth, showModelWindows, staleAfterMs, badge,
 }) {
   const tag = staleTag(row, now, staleAfterMs)
   const mark = BADGES[badge]
@@ -56,7 +56,9 @@ export function AccountBlock({
         {'  '}
         {/* 활성 표시를 이름 앞에 둔다. 자리는 늘 잡아 두어야 줄이 안 밀린다. */}
         <Text color="yellow" bold>{active ? `${ACTIVE_MARK} ` : '  '}</Text>
-        <Text color={row.authFailed ? 'red' : 'white'} bold>{row.email}</Text>
+        {/* 숨긴 계정은 펼쳐 볼 때만 나온다. 색을 죽여 목록의 나머지와 갈린다. */}
+        <Text color={row.authFailed ? 'red' : dimmed ? 'gray' : 'white'} bold={!dimmed}>{row.email}</Text>
+        {dimmed ? <Text color="gray">{'  숨김'}</Text> : null}
         {row.label ? <Text color="gray">{`  [${row.label}]`}</Text> : null}
         {mark ? <Text color={mark.color} bold>{`  ${mark.text}`}</Text> : null}
         {tag ? <Text color="gray">{`  ${tag}`}</Text> : null}

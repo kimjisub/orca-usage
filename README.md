@@ -28,6 +28,7 @@ A terminal dashboard for the Claude and Codex accounts managed by [Orca](https:/
 - **Leaves gaps where there is no data.** Sampling gaps are drawn as gaps, not as a flat line carried forward from the last reading.
 - **Scores every account and shows the working.** Three metrics are normalised and weighted into one number: how far behind the weekly window's own clock the account is, how much of the 5h window is left right now, and how much of the week is left. (An earlier version counted waste and urgency separately; they turned out to be the same quantity, since waste equals the ceiling times the hours left times urgency minus one.) The 판정 tab draws each account's score as a stacked bar with the per-metric contributions, then a table naming what each metric measures next to its weight and every account's raw value for it. Weights move with the arrow keys right there, so the ranking can be tuned while watching it reorder rather than guessed at.
 - **Suggests where to go next.** Badges mark the account that is best to use now, the one whose weekly quota will expire unused, and the one to save.
+- **Hides accounts you do not use.** `x` drops one from the list, the totals, the recommendation and auto-switching alike. `X` brings them back into view greyed out, still excluded from every judgement. Polling and history carry on, so the graph is unbroken when you unhide it. The account Orca is attached to cannot be hidden.
 - **Switches accounts.** Manually with Enter, or automatically when the account you are on gets close to its limit.
 
 ## Requirements
@@ -76,6 +77,7 @@ orca-usage --graph block       draw level lines with box characters instead of b
 | `s` | Settings | `?` | Help |
 | `w` | Cycle the range (3h to 1M) | `a` | Toggle automatic switching |
 | `g` | Collapse or expand the graph | `o` | Toggle cycle auto-trigger |
+| `x` | Hide the selected account | `X` | Show hidden accounts |
 | `q` | Quit | `Ctrl+C` / `Esc` | Quit, twice within three seconds |
 | `Enter` | Point Orca at the selected account | `1`-`9` | Jump to an account |
 

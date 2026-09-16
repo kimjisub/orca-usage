@@ -63,6 +63,7 @@ const ACTIONS = [
   { key: 'w', label: '기간' },
   { key: 'a', label: '자동' },
   { key: 'o', label: '사이클' },
+  { key: 'x', label: '숨김' },
   { key: 's', label: '설정' },
   { key: '?', label: '도움말' },
   { key: 'enter', label: '전환' },
@@ -195,7 +196,20 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   // 물어야 해서 곧이어 합류한다. 기다렸다 함께 그리면 첫 화면이 그만큼 늦다.
   const [accounts, setAccounts] = useState(() => collectAccounts())
   const [accountsReady, setAccountsReady] = useState(false)
-  const [rows, setRows] = useState(() => rowsFromCache(accounts))
+  const [allRows, setAllRows] = useState(() => rowsFromCache(accounts))
+  // 숨긴 계정. 조회와 기록은 그대로 두고 화면과 판단에서만 뺀다. 다시 꺼냈을 때
+  // 히스토리가 끊겨 있으면 그래프가 그 구간만 비어 보인다.
+  const [hiddenIds, setHiddenIds] = useState(() => saved.hiddenIds)
+  const [showHidden, setShowHidden] = useState(false)
+  const hidden = useMemo(() => new Set(hiddenIds), [hiddenIds])
+  const rows = useMemo(
+    () => allRows
+      .filter((row) => showHidden || !hidden.has(row.id))
+      .map((row) => (hidden.has(row.id) ? { ...row, hidden: true } : row)),
+    [allRows, hidden, showHidden])
+  const hiddenCount = useMemo(
+    () => allRows.filter((row) => hidden.has(row.id)).length,
+    [allRows, hidden])
   // 어느 계정에 붙어 있는지는 Orca 만 안다. 행마다 박아 두면 일부만 갱신했을 때
   // 옛 표시가 남아 별표가 둘이 된다. 한 곳에 두고 화면이 그때그때 비교한다.
   const [activeIds, setActiveIds] = useState(
@@ -212,7 +226,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
         if (!alive) return
         setAccounts(all)
         // 그 사이 폴링이 채운 값을 지우지 않는다. 새로 합류한 계정만 캐시에서 온다.
-        setRows((previous) => {
+        setAllRows((previous) => {
           const known = new Map(previous.map((row) => [row.id, row]))
           return rowsFromCache(all).map((row) => ({
             ...row, ...known.get(row.id), index: row.index, provider: row.provider,
@@ -291,7 +305,11 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const barWidth = Math.max(8, Math.min(26, columns - 30))
   // 추천과 전체 합계는 Claude 안에서만 선다. Codex 는 창이 7d 하나뿐이라
   // 같은 자로 재면 5h 가 빈 것처럼 읽힌다.
-  const claudeRows = useMemo(() => rows.filter((row) => row.provider === 'claude'), [rows])
+  // 숨긴 계정은 펼쳐 보는 중에도 추천과 합계에서 빠진다. 숨겼다는 것은 쓰지
+  // 않겠다는 뜻이라, 목록에 잠깐 꺼내 본다고 판단 대상이 되면 안 된다.
+  const claudeRows = useMemo(
+    () => rows.filter((row) => row.provider === 'claude' && !row.hidden),
+    [rows])
 
   // 목록이 그래프와 나란히 설 때 필요한 폭. 내용이 정한다.
   const listWidth = useMemo(() => {
@@ -379,9 +397,10 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       autoSwitch,
       keepAlive,
       tuning: tuned,
+      hiddenIds,
       selectedId: selected >= 0 ? (rows[selected]?.id ?? null) : null,
     })
-  }, [graphMode, rangeIndex, showModelWindows, showGraph, autoSwitch, keepAlive, tuned, selected, rows])
+  }, [graphMode, rangeIndex, showModelWindows, showGraph, autoSwitch, keepAlive, tuned, hiddenIds, selected, rows])
 
   // poll 안에서 읽으므로 ref 로 둔다. 상태를 의존성에 넣으면 껐다 켤 때마다
   // 폴링 타이머가 통째로 다시 걸린다.
@@ -433,10 +452,10 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
         only,
         freshForMs: intervalMs * 0.9,
         onAccount: (row) => {
-          setRows((previous) => previous.map((item) => (item.id === row.id ? row : item)))
+          setAllRows((previous) => previous.map((item) => (item.id === row.id ? row : item)))
         },
       })
-      setRows((previous) => previous.map((item) => fresh.find((r) => r.id === item.id) ?? item))
+      setAllRows((previous) => previous.map((item) => fresh.find((r) => r.id === item.id) ?? item))
       setHistory(loadHistory())
       const shape = fresh.map((row) => `${row.id}:${row.source}:${row.note ?? ''}`).join('|')
       if (shape !== lastShape.current) {
@@ -573,6 +592,23 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     })
   }, [])
 
+  /**
+   * 고른 계정을 숨기거나 되돌린다.
+   *
+   * 지금 붙어 있는 계정은 숨기지 않는다. 어느 계정으로 돌고 있는지는 감추면
+   * 안 되는 사실이라, 화면에서 사라지면 그다음 판단이 전부 어긋난다.
+   */
+  const toggleHidden = useCallback(() => {
+    const row = rows[selected]
+    if (!row) return notify('계정을 고른 뒤 눌러 주세요')
+    if (row.id === activeIds[row.provider]) return notify('붙어 있는 계정은 숨길 수 없습니다')
+    setHiddenIds((ids) => {
+      const next = ids.includes(row.id) ? ids.filter((id) => id !== row.id) : [...ids, row.id]
+      notify(next.includes(row.id) ? `${row.email} 숨김` : `${row.email} 다시 보임`)
+      return next
+    })
+  }, [rows, selected, activeIds, notify])
+
   const runAction = useCallback((key) => {
     if (key === 'r') doRefresh()
     else if (key === 't') doToken()
@@ -582,6 +618,8 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       if (!fit.current.graph) notify('화면이 좁아 그래프를 접었습니다')
       else setShowGraph((value) => !value)
     }
+    else if (key === 'x') toggleHidden()
+    else if (key === 'X') setShowHidden((value) => !value)
     else if (key === 's') setGraphMode('settings')
     else if (key === '?') setGraphMode('help')
     else if (key === 'o') {
@@ -614,7 +652,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     }
     else if (key === 'd') stepTab(1)
     else if (key === 'q') exit()
-  }, [doRefresh, doToken, exit, notify, stepTab])
+  }, [doRefresh, doToken, exit, notify, stepTab, toggleHidden])
 
   useInput((input, key) => {
     // 마우스 리포팅을 켜 두면 클릭 좌표가 `[<0;100;12M` 같은 문자열로 여기
@@ -680,9 +718,11 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       else if (char === 'k') setSelected((i) => Math.max(-1, i - 1))
       else if (char === '0') setSelected(-1)
       else if (char >= '1' && char <= '9') {
-        const index = Number(char) - 1
-        if (index < rows.length) setSelected(index)
-      } else if ('rtdfgqwaos?'.includes(char)) runAction(char)
+        // 화면에 적힌 번호로 찾는다. 배열 위치로 세면 숨긴 계정이 있을 때
+        // 눌린 숫자와 골라지는 계정이 어긋난다.
+        const at = rows.findIndex((row) => row.index === Number(char))
+        if (at >= 0) setSelected(at)
+      } else if ('rtdfgqwaosxX?'.includes(char)) runAction(char)
     }
   })
 
@@ -736,6 +776,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       return sum
     }
     const budget = layout.panelHeight - 2
+      - (hiddenCount > 0 ? 1 : 0)
       - totalBarsHeight(claudeRows, windowsVisible)
       - adviceHeight(adviceCompact) - AUTO_BLOCK_ROWS
       - (legendVisible ? LEGEND_ROWS : 0)
@@ -760,7 +801,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     }
     viewStart.current = start
     return { start, end }
-  }, [rows, selected, claudeRows, windowsVisible, legendVisible, adviceCompact, layout.panelHeight])
+  }, [rows, selected, claudeRows, windowsVisible, legendVisible, adviceCompact, hiddenCount, layout.panelHeight])
 
   const onClick = useCallback((row, column) => {
     // 마우스는 1 부터 세고 배치 좌표는 0 부터 센다.
@@ -847,6 +888,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
               <AccountBlock
                 row={row}
                 active={row.id === activeIds[row.provider]}
+                dimmed={Boolean(row.hidden)}
                 selected={index === selected}
                 now={now}
                 barWidth={barWidth}
@@ -858,6 +900,15 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
             </React.Fragment>
             )
           })}
+          {hiddenCount > 0
+            ? (
+              <Box flexShrink={0}>
+                <Text color="gray" wrap="truncate">
+                  {`  숨김 ${hiddenCount}개  X 로 ${showHidden ? '접기' : '펼치기'}`}
+                </Text>
+              </Box>
+              )
+            : null}
           <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
             <Advice tip={tip} compact={adviceCompact} />
             <AutoBlock
