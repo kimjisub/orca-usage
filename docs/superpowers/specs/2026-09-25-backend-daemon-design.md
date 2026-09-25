@@ -112,6 +112,8 @@ new Engine({ orca, keychain, store, notifier, clock, log })
 | `setTuning` | 설정, 판정 | 판단 기준 하나를 바꿉니다. 범위 밖이면 거절 |
 | `resetTuning` | `0` | 판단 기준 하나를 기본값으로 |
 | `setHidden` | `x` | 계정 하나를 숨기거나 되돌립니다 |
+| `checkUpdate` | | 지금 업데이트를 확인합니다 |
+| `update` | `u` 두 번 | 최신으로 받고 다시 뜹니다 |
 | `shutdown` | | 정상 종료(exit 0) |
 
 범위 검사와 기준 검사는 전부 백엔드가 합니다. 화면이 범위를 알고 버튼을 막더라도 판정은 백엔드의 응답이 정본입니다.
@@ -128,6 +130,7 @@ policy    autoSwitch, keepAlive, notifications, hiddenIds, tuning
 advice    추천(지금 쓰기, 큰 작업, 아껴둘 것)
 scores    판정 탭의 점수와 내역
 decision  마지막 전환 판단
+update    설치된 커밋, 최신 커밋, 받을 것이 있는지, 확인 시각, 오류
 lastSwitchAt
 historyAt 히스토리의 마지막 표본 시각. 화면은 이것이 늘면 history 를 since 로 받습니다
 ```
@@ -199,12 +202,12 @@ launchd  등록 안 됨.  orca-usage daemon install 로 등록합니다
 | --- | --- | --- |
 | `ProgramArguments` | bun 의 절대 경로, `src/cli.jsx` 의 절대 경로, `daemon`, `run` | launchd 의 PATH 에는 bun 이 없습니다. 둘 다 등록할 때 실제 경로로 풀어 적습니다 |
 | `RunAtLoad` | true | 로그인하면 뜹니다 |
-| `KeepAlive` | `{SuccessfulExit: false}` | 비정상 종료만 다시 띄웁니다. `daemon stop` 과 "이미 떠 있음" 은 exit 0 이라 되살리지 않습니다 |
+| `KeepAlive` | `{SuccessfulExit: false}` | 0 이 아닌 종료만 다시 띄웁니다. `daemon stop` 과 "이미 떠 있음" 은 exit 0 이라 되살리지 않고, 업데이트 뒤에는 exit 75 로 끝나 새 코드로 다시 뜹니다 |
 | `ThrottleInterval` | 10 | 계속 죽는 경우 10초 간격으로만 다시 띄웁니다 |
 | `StandardOutPath`, `StandardErrorPath` | `~/Library/Logs/orca-usage/daemon.log` | `daemon logs` 가 읽는 곳 |
 | `EnvironmentVariables` | `ORCA_USAGE_LAUNCHD=1` | 상태의 "띄운 쪽" 에 씁니다 |
 
-**경로 확인.** 등록할 때 `src/cli.jsx` 의 실제 경로가 bunx 캐시(`~/.bun/install/cache/`) 안이면 등록을 거절하고 설치 방법을 안내합니다. 그 경로는 커밋마다 바뀌어 다음 업데이트에서 사라집니다. `bun add -g` 로 깐 경로(`~/.bun/install/global/node_modules/orca-usage`)나 git clone 경로는 업데이트해도 그대로라 받습니다.
+**경로 확인.** launchd 에 물릴 경로는 업데이트해도 그대로여야 합니다. `bun add -g` 로 깐 경로(`~/.bun/install/global/node_modules/orca-usage`)와 git clone 경로는 그렇습니다. bunx 캐시(`~/.bun/install/cache/`)는 커밋마다 폴더 이름이 바뀌어 다음 업데이트에서 사라집니다. 그래서 `daemon install` 이 bunx 캐시에서 불렸으면 먼저 `bun add -g github:kimjisub/orca-usage` 로 고정 경로에 깔고, 그 경로를 등록합니다. 새 맥에서는 `bunx github:kimjisub/orca-usage daemon install` 한 줄로 설치와 등록이 끝납니다.
 
 **명령과 launchctl.**
 
@@ -240,13 +243,21 @@ launchd  등록 안 됨.  orca-usage daemon install 로 등록합니다
 
 **버전.** `package.json` 의 version 과, 알 수 있으면 커밋을 붙입니다. clone 이면 `git rev-parse`, `bun add -g` 설치면 설치본 폴더의 `.bun-tag`(`kimjisub-orca-usage-<커밋>`)를 읽습니다. 전역 `bun.lock` 은 쓰지 않습니다. 핀을 걸었다가 풀고 다시 받으면 옛 커밋 항목이 함께 남아 어느 것이 설치본인지 가를 수 없습니다(실측 2026-09-25). 화면과 백엔드의 버전이 다르면 화면 머리글에 "백엔드 버전이 다릅니다, daemon restart" 를 띄웁니다. 업데이트하고 백엔드를 다시 띄우지 않은 상태를 알리기 위해서입니다.
 
-**`orca-usage update`.** 어떻게 깔렸는지 보고 그에 맞게 받습니다.
+**업데이트 확인.** 백엔드가 켤 때와 6시간마다 확인해 상태의 `update` 에 싣습니다(설치된 커밋, 최신 커밋, 받을 것이 있는지, 확인한 시각, 오류). `bun add -g` 설치는 GitHub API 의 기본 브랜치 최신 커밋과 `.bun-tag` 를 비교합니다. clone 은 `git fetch` 뒤 지금 HEAD 가 원격 브랜치의 조상이고 서로 다를 때만 받을 것이 있다고 봅니다. 로컬에 push 안 한 커밋이 있는 개발 중인 clone 을 "업데이트 있음" 으로 잘못 읽지 않기 위해서입니다. 네트워크가 안 되면 오류만 싣고 다음 주기에 다시 봅니다.
+
+**업데이트 실행은 백엔드가 합니다.** 메서드 `checkUpdate`(지금 확인)와 `update`(받고 다시 뜨기)를 둡니다. `update` 는 아래 방식으로 받은 뒤 다시 뜹니다. launchd 가 띄운 백엔드는 exit 75 로 끝나고, `KeepAlive: {SuccessfulExit: false}` 라 launchd 가 새 코드로 다시 띄웁니다. 화면이 띄운 백엔드는 pid 와 소켓을 먼저 놓고 새 백엔드를 분리된 프로세스로 띄운 뒤 끝납니다.
+
+**화면에서.** 받을 것이 있으면 머리글에 "업데이트 있음 (u)" 를 띄웁니다. `u` 를 3초 안에 두 번 누르면 `update` 를 보냅니다. 연결이 끊겼다가 새 백엔드에 다시 붙으면, 화면도 ink 를 내리고 같은 명령을 자식 프로세스로 다시 띄워 새 코드로 돕니다. 화면과 백엔드의 버전이 다른 채로 남지 않게 하기 위해서입니다.
+
+**CLI 에서.** `orca-usage update` 는 백엔드가 떠 있으면 `update` 를 보내고 새 백엔드가 응답할 때까지 기다린 뒤 "f59de91 -> 8047102" 를 찍습니다. 백엔드가 없으면 받기만 합니다. `orca-usage status` 에 업데이트 줄을 둡니다.
+
+**받는 방식.** 어떻게 깔렸는지 보고 그에 맞게 받습니다.
 
 - `bun add -g` 설치: `bun add -g github:kimjisub/orca-usage` 로 최신 커밋을 받습니다.
 - git clone: `git pull --ff-only` 뒤 `bun install`.
 - 그 밖(bunx 등): 받는 방법을 안내하고 끝냅니다.
 
-받은 뒤 백엔드가 떠 있으면 `daemon restart` 를 합니다. `bun add -g github:kimjisub/orca-usage` 는 이미 깔려 있어도 기본 브랜치의 최신 커밋으로 다시 받습니다(실측 2026-09-25: `fb9e1d0` 에서 `f59de91` 로 올라감). 받기 전후의 `.bun-tag` 를 비교해 "f59de91 -> 8047102" 처럼 무엇이 바뀌었는지 찍고, 같으면 "이미 최신" 이라고 찍고 백엔드는 건드리지 않습니다.
+`bun add -g github:kimjisub/orca-usage` 는 이미 깔려 있어도 기본 브랜치의 최신 커밋으로 다시 받습니다(실측 2026-09-25: `fb9e1d0` 에서 `f59de91` 로 올라감). 받기 전후의 `.bun-tag` 를 비교해 "f59de91 -> 8047102" 처럼 무엇이 바뀌었는지 찍고, 같으면 "이미 최신" 이라고 찍고 백엔드는 건드리지 않습니다.
 
 ## 오류 처리
 
@@ -274,8 +285,8 @@ launchd  등록 안 됨.  orca-usage daemon install 로 등록합니다
 README 를 다시 씁니다. 설치 절은 다른 맥을 기준으로 합니다.
 
 - 준비물: macOS, Orca(로그인된 계정 하나 이상), Bun.
-- 설치: `bun add -g github:kimjisub/orca-usage`, `orca-usage daemon install`, `orca-usage status` 로 확인.
-- 업데이트: `orca-usage update`.
+- 설치: `bunx github:kimjisub/orca-usage daemon install` 한 줄. 고정 경로에 깔고 등록까지 합니다. 나눠 하려면 `bun add -g github:kimjisub/orca-usage` 뒤 `orca-usage daemon install`. `orca-usage status` 로 확인.
+- 업데이트: `orca-usage update`, 또는 화면에서 `u` 두 번.
 - 제거: `orca-usage daemon uninstall`, `bun remove -g orca-usage`. 남는 파일(`~/.cache/orca-usage`, `~/Library/Logs/orca-usage`)과 지우는 법.
 - 소스에서 돌리기: clone, `bun install`, `bun run src/cli.jsx daemon install` (clone 경로로 등록됩니다).
 - 문제 해결: 백엔드가 안 뜰 때 `daemon logs`, Orca 가 꺼져 있을 때, 키체인 창이 뜰 때, 화면과 백엔드 버전이 다를 때.
