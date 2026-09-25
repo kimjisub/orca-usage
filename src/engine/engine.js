@@ -66,9 +66,13 @@ export class Engine extends EventEmitter {
     this.lastShape = ''
     this.authSeen = new Set()
     this.refreshSeen = new Map()
-    // 계정별 토큰 만료 시각. 아직 살아 있으면 키체인을 다시 읽지 않는다.
+    // 계정별 토큰 만료 시각과 그것을 확인한 시각. 아직 살아 있으면 키체인을 다시
+    // 읽지 않으므로, 상세 화면이 그 값이 언제 것인지 함께 보여 준다.
     this.expiry = new Map()
+    this.expiryCheckedAt = new Map()
     this.refreshFailedAt = new Map()
+    // Codex 토큰은 Orca 와 Codex 가 돌린다. 만료와 마지막 갱신을 읽어 보여 주기만 한다.
+    this.codexTokens = new Map()
   }
 
   /**
@@ -84,6 +88,9 @@ export class Engine extends EventEmitter {
     }
     // 켜기 전부터 끊겨 있던 계정은 이미 알렸던 것이다. 켤 때마다 다시 알리지 않는다.
     for (const row of this.rows) if (row.authFailed) this.authSeen.add(row.id)
+    // 캐시의 만료 시각은 며칠 전 것일 수 있다. 켤 때 한 번은 키체인에서 확인한다.
+    await this.peekAll()
+    this.readCodexTokens()
     const claude = this.accounts.find((account) => account.provider === 'claude' && account.active)
     this.active = { claude: claude?.id ?? null, codex: null }
     this.derive()
@@ -168,6 +175,7 @@ export class Engine extends EventEmitter {
       this.noteTokens(fresh)
       this.noteAuth(fresh)
       await this.reauth()
+      this.readCodexTokens()
       if (this.policy.keepAlive) await this.openWindows()
       this.derive()
       if (this.policy.autoSwitch) await this.autoSwitch()
@@ -296,6 +304,7 @@ export class Engine extends EventEmitter {
         continue // 키체인이 잠깐 잠겼다. 다음 조회에 다시 본다
       }
       this.expiry.set(account.id, expiresAt)
+      this.expiryCheckedAt.set(account.id, now)
       if (!isAbandoned(expiresAt, now)) continue
 
       let result
@@ -309,6 +318,7 @@ export class Engine extends EventEmitter {
       if (result.refreshed) {
         this.refreshFailedAt.delete(account.id)
         this.expiry.set(account.id, result.expiresAt)
+        this.expiryCheckedAt.set(account.id, now)
         store.updateCache(account.id, { expiresAt: result.expiresAt, refreshedAt: now })
         this.refreshSeen.set(account.id, now)
         const hours = Math.floor((now - expiresAt) / 3_600_000)
@@ -323,6 +333,49 @@ export class Engine extends EventEmitter {
           : row))
         this.noteAuth(this.rows.filter((row) => row.id === account.id))
       }
+    }
+  }
+
+  /** Claude 계정의 만료 시각을 모두 한 번 읽는다. 켤 때만 부른다. */
+  async peekAll() {
+    for (const account of this.accounts) {
+      if (account.provider !== 'claude') continue
+      try {
+        this.expiry.set(account.id, await this.ports.keychain.peekExpiry(account.id))
+        this.expiryCheckedAt.set(account.id, this.now())
+      } catch { /* 키체인이 잠깐 잠겼다. 조회 주기에 다시 본다 */ }
+    }
+  }
+
+  readCodexTokens() {
+    const read = this.ports.orca.codexTokens
+    if (!read) return
+    this.codexTokens = read(this.accounts.filter((account) => account.provider === 'codex'))
+  }
+
+  /**
+   * 한 계정의 토큰 요약. 상세 화면이 그린다.
+   *
+   * owner 는 지금 누가 갱신할 차례인가다. 살아 있으면 Orca(orca), 만료된 지 한
+   * 시간이 넘었으면 다음 조회의 백엔드(backend), 백엔드가 갱신에 실패해 기다리는
+   * 중이면 retry 다. Codex 는 늘 Orca 와 Codex 의 몫이다.
+   */
+  tokenOf(row) {
+    const now = this.now()
+    if (row.provider === 'codex') {
+      const info = this.codexTokens.get(row.id)
+      return info ? { ...info, checkedAt: this.pollState.lastAt, owner: 'orca', source: 'codex-auth' } : null
+    }
+    const expiresAt = this.expiry.get(row.id) ?? null
+    const failedAt = this.refreshFailedAt.get(row.id) ?? null
+    const waiting = failedAt != null && now - failedAt < REFRESH_RETRY_MS
+    return {
+      expiresAt,
+      checkedAt: this.expiryCheckedAt.get(row.id) ?? null,
+      refreshedAt: this.refreshSeen.get(row.id) ?? null,
+      owner: waiting ? 'retry' : isAbandoned(expiresAt, now) ? 'backend' : 'orca',
+      retryAt: waiting ? failedAt + REFRESH_RETRY_MS : null,
+      source: 'keychain',
     }
   }
 
@@ -451,6 +504,9 @@ export class Engine extends EventEmitter {
     const account = this.accounts.find((entry) => entry.id === accountId)
     if (!account) throw new Error('없는 계정입니다')
     if (this.active[account.provider] === accountId) throw new Error('이미 이 계정에 붙어 있습니다')
+    // Orca 의 전환 요청이 "관리 계정 없음" 을 받는지 확인할 길이 없다. 시스템
+    // 기본 로그인으로 되돌리는 것은 Orca 앱에 맡긴다.
+    if (account.system) throw new Error('시스템 기본 계정으로는 Orca 앱에서 옮깁니다')
     if (this.switching) throw new Error('다른 전환이 진행 중입니다')
     this.switching = true
     try {
@@ -574,7 +630,7 @@ export class Engine extends EventEmitter {
       daemon: { ...this.meta },
       orca: { ...this.orcaState },
       poll: { ...this.pollState, intervalMs: tuning().intervalMs },
-      accounts: this.viewRows().map((row) => ({ ...row, hidden: hidden.has(row.id) })),
+      accounts: this.viewRows().map((row) => ({ ...row, hidden: hidden.has(row.id), token: this.tokenOf(row) })),
       active: { ...this.active },
       policy: this.policyView(),
       advice: this.advice,

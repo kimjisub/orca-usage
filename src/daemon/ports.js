@@ -1,5 +1,6 @@
 import { listAccounts } from '../adapters/orca/accounts.js'
 import { fetchOrcaLimits, selectCodexAccount } from '../adapters/orca/orca-limits.js'
+import { codexTokenInfo } from '../adapters/orca/codex-auth.js'
 import { activeAccountIds, selectClaudeAccount } from '../adapters/orca/orca-rpc.js'
 import { ensureToken, fetchUsage, normalize } from '../adapters/keychain/oauth.js'
 import { openWindow } from '../adapters/keychain/keepalive.js'
@@ -27,6 +28,10 @@ export function createPorts({ updater } = {}) {
         ? selectCodexAccount(accountId)
         : selectClaudeAccount(accountId)),
       fetchLimits: fetchOrcaLimits,
+      // 시스템 기본 로그인은 Orca 의 계정 폴더가 아니라 Codex 자신의 home 에 있다.
+      codexTokens: (accounts) => new Map(accounts.map((account) => [
+        account.id, codexTokenInfo(account.system ? null : account.id),
+      ]).filter(([, info]) => info)),
     },
     keychain: {
       ensureToken, fetchUsage, normalize, peekExpiry, refresh: refreshNow, openWindow,

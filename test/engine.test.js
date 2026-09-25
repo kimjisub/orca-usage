@@ -208,3 +208,20 @@ describe('계정 목록', () => {
     expect(rows.find((row) => row.id === 'a').hidden).toBe(false)
   })
 })
+
+describe('상세', () => {
+  test('살아 있는 Claude 토큰은 Orca 몫이고 만료와 확인 시각이 실린다', async () => {
+    const { engine } = setup({ accounts: [claudeAccount('a', 1)], usage: { a: limits(T0) }, expiry: { a: T0 + HOUR } })
+    await engine.start({ schedule: false })
+    const token = engine.snapshot().accounts[0].token
+    expect(token).toMatchObject({ expiresAt: T0 + HOUR, checkedAt: T0, owner: 'orca', source: 'keychain' })
+  })
+
+  test('시스템 기본 Codex 로그인으로는 옮기지 않는다', async () => {
+    const system = { ...codexAccount('codex-system:x', 1), system: true }
+    const { engine } = setup({ accounts: [system, codexAccount('y', 2)], active: { codex: 'y' } })
+    await engine.start({ schedule: false })
+    await expect(engine.switchTo('codex-system:x')).rejects.toThrow('Orca 앱에서')
+  })
+})
+

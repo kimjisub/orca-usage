@@ -19,6 +19,8 @@
  * @property {(provider: string, accountId: string) => Promise<void>} select
  * @property {(options: {refreshUsage: boolean}) => Promise<object>} fetchLimits
  *   Orca 가 들고 있는 계정별 한도 (adapters/orca/orca-limits.js 의 모양)
+ * @property {(accounts: Account[]) => Map<string, {expiresAt: number|null, refreshedAt: number|null}>} [codexTokens]
+ *   Codex 계정들의 토큰 만료와 마지막 갱신. 읽기만 한다
  *
  * @typedef {object} KeychainPort
  * @property {(accountId: string, options: object) => Promise<object>} ensureToken

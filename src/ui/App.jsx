@@ -16,6 +16,7 @@ import { Log, logVisibleRows } from './Log.jsx'
 import { SETTINGS_ROWS, Settings } from './Settings.jsx'
 import { Help, helpRows, helpVisibleRows } from './Help.jsx'
 import { Score } from './Score.jsx'
+import { Details } from './Details.jsx'
 
 const HEADER_ROWS = 2
 // 종료와 업데이트를 되묻는 시간. 이 안에 다시 누르면 한다.
@@ -30,6 +31,7 @@ const totalAt = (provider) => TOTAL_AT[provider] ?? TOTAL_AT.claude
 const GRAPH_TABS = [
   { mode: 'level', label: '사용량' },
   { mode: 'rate', label: '소비' },
+  { mode: 'detail', label: '상세' },
   { mode: 'schedule', label: '일정' },
   { mode: 'score', label: '판정' },
   { mode: 'log', label: '기록' },
@@ -143,7 +145,7 @@ const TAB_RANGES = (() => {
   })
 })()
 
-// 탭 일곱이 다 들어가려면 이만큼 필요하다.
+// 탭이 다 들어가려면 이만큼 필요하다.
 const TAB_ROW_WIDTH = TAB_RANGES.at(-1)?.end ?? 0
 
 /**
@@ -314,7 +316,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   // 글로 된 패널은 선이 아니라서 좁아도 읽히지만, 좌우로 나눈 채로는 양쪽 다
   // 눌린다. 나란히 세울 자리가 없으면 고른 것 하나가 폭을 다 쓰고 계정 목록은
   // 그동안 접힌다. 사용량과 소비는 그래프라 접히던 대로 접힌다.
-  const textPanel = ['schedule', 'score', 'log', 'settings', 'help'].includes(graphMode)
+  const textPanel = ['detail', 'schedule', 'score', 'log', 'settings', 'help'].includes(graphMode)
   const graphVisible = graphFits || textPanel
   const listVisible = graphFits || !graphVisible
   const adviceCompact = screenRows < TIGHT_ROWS
@@ -808,6 +810,19 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
                 offset={logAt}
                 height={layout.graphHeight - 1}
                 columns={graphWidth}
+              />
+              )
+            : graphMode === 'detail'
+            ? (
+              <Details
+                row={current}
+                rows={rows}
+                history={history}
+                log={logEntries}
+                now={now}
+                height={layout.graphHeight - 1}
+                columns={graphWidth}
+                staleAfterMs={intervalMs * 4}
               />
               )
             : graphMode === 'schedule'
