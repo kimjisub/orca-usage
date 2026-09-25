@@ -68,9 +68,7 @@ const SCREEN_VERSION = versionLabel()
 function Header({ status, snapshot, hello, now, message }) {
   const poll = snapshot?.poll
   let right
-  if (status === 'failed' && !snapshot) {
-    right = <Text color="red">{'백엔드를 띄우지 못했습니다. orca-usage daemon logs'}</Text>
-  } else if (status === 'lost') {
+  if (status === 'lost') {
     right = <Text color="yellow" bold>{'백엔드 연결 끊김, 다시 붙는 중'}</Text>
   } else if (!snapshot) {
     right = <Text color="gray">{'백엔드에 붙는 중'}</Text>
@@ -85,7 +83,8 @@ function Header({ status, snapshot, hello, now, message }) {
           : null}
         {snapshot.update?.available ? <Text color="cyan" bold>{'업데이트 있음 (u)  '}</Text> : null}
         {snapshot.policy?.autoSwitch ? <Text color="green" bold>{'자동 전환  '}</Text> : null}
-        {hello && hello.source !== 'launchd' ? <Text color="gray">{'launchd 미등록  '}</Text> : null}
+        {/* 터미널에서 직접 띄운 백엔드다. 그 터미널을 닫으면 사라진다. */}
+        {hello && hello.source !== 'launchd' ? <Text color="gray">{'직접 띄운 백엔드  '}</Text> : null}
         <Text color="gray">{countdown}</Text>
       </>
     )
@@ -408,6 +407,11 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   const updateAt = useRef(0)
   const updatingFrom = useRef(null)
   const doUpdate = useCallback(async () => {
+    if (hello && hello.source !== 'launchd') {
+      // 직접 띄운 백엔드는 받은 뒤 다시 뜨지 않아 화면이 붙을 곳을 잃는다.
+      notify('직접 띄운 백엔드는 여기서 업데이트하지 않습니다. 터미널에서 orca-usage update 뒤 다시 띄웁니다')
+      return
+    }
     const info = snapshot?.update
     if (!info?.available) {
       updateAt.current = 0
@@ -679,11 +683,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     return (
       <Box flexDirection="column" height={screenRows} width={columns}>
         {header}
-        <Text color="gray">
-          {status === 'failed'
-            ? '  백엔드를 띄우지 못했습니다. orca-usage daemon logs 로 이유를 봅니다. q 로 끝냅니다'
-            : '  백엔드에 붙는 중입니다'}
-        </Text>
+        <Text color="gray">{'  백엔드에 붙는 중입니다'}</Text>
       </Box>
     )
   }

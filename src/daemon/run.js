@@ -8,7 +8,6 @@ import { acquirePid, releasePid } from './instance.js'
 import { createPorts } from './ports.js'
 import { PROTOCOL } from './protocol.js'
 import { createServer } from './server.js'
-import { spawnDetached } from './spawn.js'
 
 // 업데이트 뒤 launchd 에게 새 코드로 다시 띄워 달라는 종료 코드. KeepAlive 가
 // 0 이 아닌 종료만 다시 띄우므로 0 이 아니면 되고, 크래시(1)와 가를 수 있게 따로 둔다.
@@ -17,13 +16,11 @@ export const EXIT_RESTART = 75
 const say = (text) => process.stdout.write(`${new Date().toISOString()} ${text}\n`)
 
 /**
- * 누가 띄웠나. launchd 는 plist 의 환경 변수로, 화면이나 명령이 따로 띄운 것은
- * spawnDetached 가 알린다.
+ * 누가 띄웠나. launchd 는 plist 의 환경 변수로 알린다. 그 밖은 터미널에서 직접
+ * daemon run 을 부른 것이다. 화면과 명령은 백엔드를 띄우지 않는다.
  */
 function launchedBy() {
-  if (process.env.ORCA_USAGE_LAUNCHD) return 'launchd'
-  if (process.env.ORCA_USAGE_SPAWNED) return 'spawned'
-  return 'manual'
+  return process.env.ORCA_USAGE_LAUNCHD ? 'launchd' : 'manual'
 }
 
 /**
@@ -81,20 +78,15 @@ export async function runDaemon({ updater = createUpdater() } = {}) {
   })
   fs.chmodSync(DAEMON_SOCKET, 0o600)
 
-  // 새 코드로 다시 뜬다. launchd 가 띄운 것이면 종료 코드로 launchd 에 맡기고,
-  // 아니면 자리를 놓은 뒤 새 백엔드를 띄우고 끝난다.
+  // 새 코드로 다시 뜬다. launchd 가 띄운 것은 종료 코드로 launchd 에 맡긴다.
+  // 직접 띄운 것은 끝나기만 한다. 다시 띄우는 것은 그 터미널의 몫이다.
   engine.on('restart', () => setTimeout(() => {
     if (source === 'launchd') {
       stop(EXIT_RESTART)
       return
     }
-    engine.stop()
-    server.close()
-    fs.rmSync(DAEMON_SOCKET, { force: true })
-    releasePid(DAEMON_PID)
-    const pid = spawnDetached()
-    say(`업데이트 뒤 새 백엔드를 띄웠습니다 (pid ${pid})`)
-    process.exit(0)
+    say('업데이트했습니다. 직접 띄운 백엔드라 스스로 다시 뜨지 않습니다. daemon run 으로 다시 띄웁니다')
+    stop(0)
   }, 300))
 
   process.on('SIGTERM', () => stop(0))

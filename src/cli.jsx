@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { HELP } from './help-text.js'
-import { DAEMON_LOG, HOME, LOG_DIR, STATE_DIR } from './paths.js'
+import { CLI_PATH, DAEMON_LOG, HOME, LOG_DIR, STATE_DIR } from './paths.js'
 import { clockAt, shortSpan } from './core/format.js'
 import { answers, call, connect } from './client/connection.js'
-import { ensureBackend, waitForBackend, waitForGone } from './client/ensure.js'
+import { findBackend, waitForBackend, waitForGone } from './client/ensure.js'
+import { confirm } from './client/prompt.js'
 import { PLIST_PATH, inspect, kickstart, register, unregister } from './daemon/launchd.js'
-import { spawnDetached } from './daemon/spawn.js'
 import { installMode } from './adapters/install/install.js'
 import { createUpdater, repoSlug } from './adapters/install/updater.js'
 
@@ -19,7 +19,7 @@ const fail = (text, code = 1) => {
 }
 const tilde = (file) => (file.startsWith(HOME) ? `~${file.slice(HOME.length)}` : file)
 const onOff = (value) => (value ? '켜짐' : '꺼짐')
-const SOURCE_LABEL = { launchd: 'launchd 가 띄움', spawned: '따로 띄움', manual: '손으로 띄움' }
+const SOURCE_LABEL = { launchd: 'launchd 가 띄움', manual: '직접 띄움' }
 
 /**
  * 인자를 명령과 옵션으로 가른다. --graph 만 값을 받는다.
@@ -118,7 +118,7 @@ async function statusCommand({ json = false } = {}) {
   if (launchd.registered) {
     out(`launchd  등록됨  ${tilde(PLIST_PATH)}`)
   } else {
-    out('launchd  등록 안 됨. 따로 띄운 백엔드라 재부팅하면 사라집니다.  orca-usage daemon install')
+    out('launchd  등록 안 됨. 직접 띄운 백엔드라 그 터미널을 닫으면 사라집니다.  orca-usage daemon install')
   }
   out(`로그     ${tilde(DAEMON_LOG)}`)
 }
@@ -144,9 +144,45 @@ async function waitForFirstPoll(timeoutMs = 30_000) {
   }
 }
 
+/**
+ * 붙을 백엔드를 마련한다. 화면과 명령은 백엔드를 스스로 띄우지 않고, launchd
+ * 에 등록돼 있지 않으면 설치를 묻는다. 물을 사람이 없으면(터미널이 아니면)
+ * 안내만 하고 끝낸다.
+ *
+ * @returns {Promise<{hello: object, cliPath: string}|null>}
+ *   cliPath 는 이 명령을 이어 갈 코드의 자리다. bunx 캐시에서 불러 설치했으면
+ *   고정 경로에 새로 깐 쪽이다
+ */
+async function requireBackend({ interactive }) {
+  const found = await findBackend()
+  if (found.hello) return { hello: found.hello, cliPath: CLI_PATH }
+  if (found.state === 'down') {
+    fail('launchd 에 등록돼 있지만 백엔드가 뜨지 않습니다. orca-usage daemon logs 로 이유를 봅니다')
+    return null
+  }
+  if (!interactive) {
+    fail('백엔드가 launchd 에 등록돼 있지 않습니다. orca-usage daemon install 로 설치합니다', 3)
+    return null
+  }
+  out('백엔드가 launchd 에 등록돼 있지 않습니다.')
+  out('조회와 재인증, 계정 전환은 백엔드가 하고, 화면은 그것을 보여 주기만 합니다.')
+  if (!(await confirm('지금 설치하고 등록할까요? [Y/n] '))) {
+    out('취소했습니다')
+    return null
+  }
+  const installed = await installDaemon({ showStatus: false })
+  if (!installed.ok) return null
+  const hello = await waitForBackend(20_000)
+  if (!hello) {
+    fail('설치했지만 백엔드가 답하지 않습니다. orca-usage daemon logs 로 이유를 봅니다')
+    return null
+  }
+  return { hello, cliPath: installed.cliPath }
+}
+
 async function accountsCommand({ json = false } = {}) {
-  const { hello } = await ensureBackend()
-  if (!hello) return fail('백엔드를 띄우지 못했습니다. orca-usage daemon logs 로 이유를 봅니다')
+  const ready = await requireBackend({ interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
+  if (!ready) return undefined
   const snapshot = (await waitForFirstPoll()) ?? await call('snapshot')
   if (json) {
     out(JSON.stringify(snapshot.accounts, null, 2))
@@ -164,7 +200,12 @@ async function accountsCommand({ json = false } = {}) {
 
 // ---- daemon -------------------------------------------------------------
 
-async function installDaemon() {
+/**
+ * launchd 에 등록한다.
+ *
+ * @returns {Promise<{ok: boolean, cliPath?: string}>} cliPath 는 등록한 코드의 자리
+ */
+async function installDaemon({ showStatus = true } = {}) {
   if (installMode() === 'bunx') {
     // bunx 캐시는 커밋마다 폴더 이름이 바뀌어 launchd 에 물리면 다음 업데이트에서
     // 사라진다. 경로가 그대로인 자리에 먼저 깔고 그쪽에서 다시 부른다.
@@ -172,28 +213,37 @@ async function installDaemon() {
     out('bunx 캐시에서 불렸습니다. 업데이트해도 경로가 그대로인 자리에 먼저 설치합니다.')
     out(`  bun add -g github:${slug}`)
     const added = spawnSync(process.execPath, ['add', '-g', `github:${slug}`], { stdio: 'inherit' })
-    if (added.status !== 0) return fail('설치하지 못했습니다')
+    if (added.status !== 0) {
+      fail('설치하지 못했습니다')
+      return { ok: false }
+    }
     const bunHome = process.env.BUN_INSTALL ?? path.join(os.homedir(), '.bun')
     const globalCli = path.join(bunHome, 'install/global/node_modules/orca-usage/src/cli.jsx')
     const next = spawnSync(process.execPath, [globalCli, 'daemon', 'install'], { stdio: 'inherit' })
     process.exitCode = next.status ?? 1
-    return
+    return { ok: next.status === 0, cliPath: globalCli }
   }
 
-  // 화면이나 손으로 띄운 백엔드가 pid 를 쥐고 있으면 launchd 가 띄운 쪽이
-  // "이미 떠 있음" 으로 물러난다. 먼저 내린다.
+  // 직접 띄운 백엔드가 pid 를 쥐고 있으면 launchd 가 띄운 쪽이 "이미 떠 있음"
+  // 으로 물러난다. 먼저 내린다.
   const hello = await answers()
   if (hello && hello.source !== 'launchd') {
-    out(`따로 떠 있던 백엔드(pid ${hello.pid})를 내립니다`)
+    out(`직접 띄운 백엔드(pid ${hello.pid})를 내립니다`)
     await call('shutdown')
     await waitForGone()
   }
   await register()
   out(`launchd 에 등록했습니다: ${tilde(PLIST_PATH)}`)
   const up = await waitForBackend(20_000, { unless: (next) => next.source !== 'launchd' })
-  if (!up) return fail('등록은 했지만 백엔드가 답하지 않습니다. orca-usage daemon logs 로 이유를 봅니다')
-  out()
-  await statusCommand()
+  if (!up) {
+    fail('등록은 했지만 백엔드가 답하지 않습니다. orca-usage daemon logs 로 이유를 봅니다')
+    return { ok: false }
+  }
+  if (showStatus) {
+    out()
+    await statusCommand()
+  }
+  return { ok: true, cliPath: CLI_PATH }
 }
 
 async function uninstallDaemon() {
@@ -208,22 +258,20 @@ async function uninstallDaemon() {
   if (hello) {
     await call('shutdown')
     await waitForGone()
-    out(`따로 떠 있던 백엔드(pid ${hello.pid})도 내렸습니다`)
+    out(`직접 띄운 백엔드(pid ${hello.pid})도 내렸습니다`)
   }
   out(`상태와 기록은 남겨 둡니다: ${tilde(STATE_DIR)}, ${tilde(LOG_DIR)}`)
 }
 
 async function restartDaemon() {
   const [launchd, before] = await Promise.all([inspect(), answers()])
-  if (launchd.registered) {
-    await kickstart()
-  } else {
-    if (before) {
-      await call('shutdown')
-      await waitForGone()
-    }
-    spawnDetached()
+  if (!launchd.registered) {
+    // 다시 띄우는 것은 launchd 의 일이다. 여기서 따로 띄우면 재부팅에 사라진다.
+    return fail(before
+      ? '직접 띄운 백엔드는 여기서 다시 띄우지 않습니다. 그 터미널에서 다시 띄우거나 orca-usage daemon install 로 등록합니다'
+      : '백엔드가 launchd 에 등록돼 있지 않습니다. orca-usage daemon install 로 설치합니다', 3)
   }
+  await kickstart()
   const after = await waitForBackend(20_000, { unless: (next) => Boolean(before) && next.pid === before.pid })
   if (!after) return fail('다시 뜨지 않았습니다. orca-usage daemon logs 로 이유를 봅니다')
   out(`다시 떴습니다: pid ${after.pid}, ${after.version}, ${SOURCE_LABEL[after.source] ?? after.source}`)
@@ -284,6 +332,10 @@ async function updateCommand() {
   out(`받는 중: ${info.installed} -> ${info.latest}`)
   const result = await call('update', {}, { timeoutMs: 300_000 })
   if (!result.changed) return out('받을 것이 없었습니다')
+  if (hello.source !== 'launchd') {
+    // 직접 띄운 백엔드는 받은 뒤 끝나고 다시 뜨지 않는다. 다시 띄울 것이 없다.
+    return out(`${result.from} -> ${result.to}. 직접 띄운 백엔드라 그 터미널에서 다시 띄웁니다`)
+  }
   const after = await waitForBackend(60_000, { unless: (next) => next.pid === hello.pid })
   if (!after) return fail('받았지만 새 백엔드가 답하지 않습니다. orca-usage daemon logs 로 이유를 봅니다')
   out(`${result.from} -> ${result.to}. 백엔드가 새 코드로 떴습니다 (pid ${after.pid})`)
@@ -292,6 +344,15 @@ async function updateCommand() {
 // ---- 화면 ---------------------------------------------------------------
 
 async function screen(graphStyle) {
+  const ready = await requireBackend({ interactive: true })
+  if (!ready) return
+  if (ready.cliPath !== CLI_PATH) {
+    // bunx 캐시에서 불러 고정 경로에 방금 깔았다. 화면도 그 코드로 열어야
+    // 백엔드와 같은 버전으로 돈다.
+    const next = spawnSync(process.execPath, [ready.cliPath, ...process.argv.slice(2)], { stdio: 'inherit' })
+    process.exitCode = next.status ?? 0
+    return
+  }
   const React = (await import('react')).default
   const { render } = await import('ink')
   const { App } = await import('./ui/App.jsx')

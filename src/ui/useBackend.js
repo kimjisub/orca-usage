@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { connect } from '../client/connection.js'
-import { ensureBackend } from '../client/ensure.js'
+import { wakeIfRegistered } from '../client/ensure.js'
 
 // 끊긴 뒤 다시 붙는 간격. launchd 는 크래시 뒤 10초 안에 다시 띄운다.
 const RETRY_MS = 2_000
-// 이만큼 연달아 못 붙으면 백엔드가 없는 것으로 보고 한 번 띄운다.
-const RETRIES_BEFORE_START = 3
+// 이만큼 연달아 못 붙으면 launchd 에 깨우라고 한다. 등록돼 있지 않으면 기다리기만 한다.
+const RETRIES_BEFORE_WAKE = 3
 // 백엔드는 오래된 표본을 솎는다. 화면이 받은 것에 덧붙이기만 하면 그 솎음이
 // 반영되지 않아 긴 세션에서 화면 쪽만 불어난다. 이만큼마다 통째로 다시 받는다.
 const FULL_HISTORY_MS = 30 * 60_000
@@ -26,11 +26,12 @@ function mergeHistory(previous, incoming) {
  * 백엔드에 붙어 그 상태를 그대로 들고 있는다. 화면이 가진 상태의 정본은
  * 전부 여기서 온다. 화면은 이것을 그리고, 사람이 누른 것을 request 로 보낸다.
  *
- * 붙을 백엔드가 없으면 띄운다(client/ensure.js). 끊기면 2초마다 다시 붙고, 세
- * 번 못 붙으면 한 번 더 띄운다.
+ * 백엔드를 마련하는 것은 화면을 열기 전의 일이다(cli.jsx 의 requireBackend).
+ * 여기서는 띄우지 않는다. 끊기면 2초마다 다시 붙고, 세 번 못 붙으면 launchd 에
+ * 등록된 백엔드만 깨운다.
  *
  * @returns {{
- *   status: 'connecting'|'connected'|'lost'|'failed',
+ *   status: 'connecting'|'connected'|'lost',
  *   snapshot: object|null, history: object, log: object[], hello: object|null,
  *   request: (method: string, params?: object, options?: object) => Promise<any>,
  * }}
@@ -67,7 +68,7 @@ export function useBackend() {
         link = await connect()
       } catch {
         failures += 1
-        if (failures === RETRIES_BEFORE_START) await ensureBackend().catch(() => {})
+        if (failures === RETRIES_BEFORE_WAKE) await wakeIfRegistered().catch(() => {})
         if (alive.current) retryTimer = setTimeout(attach, RETRY_MS)
         return
       }
@@ -102,16 +103,7 @@ export function useBackend() {
       }
     }
 
-    // 처음에는 붙기 전에 백엔드를 마련한다. 없으면 여기서 띄운다.
-    ensureBackend()
-      .then(({ hello: found }) => {
-        if (!alive.current) return
-        if (!found) setStatus('failed')
-        attach()
-      })
-      .catch(() => {
-        if (alive.current) attach()
-      })
+    attach()
 
     const refreshAll = setInterval(() => loadHistory(true).catch(() => {}), FULL_HISTORY_MS)
     return () => {

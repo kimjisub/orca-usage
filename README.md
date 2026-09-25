@@ -77,9 +77,19 @@ ln -s "$PWD/orca-usage" ~/.local/bin/orca-usage
 
 `~/.local/bin` is not on the default macOS `PATH`; add `export PATH="$HOME/.local/bin:$PATH"` to your shell rc if it is missing.
 
-### Just looking
+### Opening the screen first
 
-`bunx github:kimjisub/orca-usage` runs the screen without installing anything. With no backend around, the screen starts one in the background. That backend outlives the screen but not a reboot, and the header says `launchd 미등록` until you run `daemon install`.
+Running `orca-usage` (or `bunx github:kimjisub/orca-usage`) before installing asks first:
+
+```
+백엔드가 launchd 에 등록돼 있지 않습니다.
+조회와 재인증, 계정 전환은 백엔드가 하고, 화면은 그것을 보여 주기만 합니다.
+지금 설치하고 등록할까요? [Y/n]
+```
+
+Enter or `y` installs and registers exactly as `daemon install` would, then opens the screen; from bunx the screen opens from the freshly installed copy, so it runs the same version as the backend. `n` leaves and changes nothing. With no terminal to ask (a pipe, a script), it prints how to install and exits with code 3.
+
+The screen never starts a backend of its own. One started that way would look fine until the next reboot, when polling and switching would quietly stop.
 
 ## Update
 
@@ -89,7 +99,7 @@ orca-usage update
 
 Or press `u` in the screen, then `u` again within three seconds.
 
-The backend checks on start and every six hours, and the screen's header shows `업데이트 있음 (u)` when there is something to fetch. Updating is the backend's job either way: it fetches the new code, then comes back on it. Under launchd it exits with code 75 and launchd starts it again; a backend started by the screen hands its socket to a fresh process. The screen reconnects to the new backend and then restarts itself, so the two never run different versions for long. `orca-usage update` prints the move, for example `f59de91 -> 8047102`.
+The backend checks on start and every six hours, and the screen's header shows `업데이트 있음 (u)` when there is something to fetch. Updating is the backend's job either way: it fetches the new code, then comes back on it. Under launchd it exits with code 75 and launchd starts it again. The screen reconnects to the new backend and then restarts itself, so the two never run different versions for long. `orca-usage update` prints the move, for example `f59de91 -> 8047102`.
 
 How it fetches depends on how it was installed:
 
@@ -113,7 +123,7 @@ History, the control log and settings stay in `~/.cache/orca-usage`, and the bac
 ## Commands
 
 ```
-orca-usage                     the screen. Starts a backend if none is running
+orca-usage                     the screen. Offers to install the backend if it is not registered
 orca-usage status [--json]     backend status. Exits 3 when the backend is down
 orca-usage accounts [--json]   each account's usage, printed once (--once and --json do the same)
 orca-usage update              fetch the latest and restart the backend on it
@@ -126,7 +136,7 @@ orca-usage daemon run          run the backend in this terminal (what launchd ca
 orca-usage --graph block       draw level lines with box characters instead of braille
 ```
 
-`accounts` prints what the backend has rather than polling on its own, since a second poller would split the usage budget with it. It starts a backend if needed and waits for its first poll.
+`accounts` prints what the backend has rather than polling on its own, since a second poller would split the usage budget with it. Like the screen, it offers to install when the backend is not registered, and waits for the first poll of a backend that has just started.
 
 ## How it is put together
 
@@ -136,7 +146,9 @@ orca-usage --graph block       draw level lines with box characters instead of b
 
 **One backend at a time.** Two pollers would share the five-calls-per-five-minutes budget and put the active account into 429 first. The backend takes `~/.cache/orca-usage/daemon.pid` exclusively before opening the socket; a second one logs `이미 떠 있습니다` and exits 0.
 
-**launchd keeps it up.** The agent is `~/Library/LaunchAgents/com.kimjisub.orca-usage.plist`. It names bun and `src/cli.jsx` by absolute path, since launchd's `PATH` has neither. `KeepAlive` restarts only on a non-zero exit, so `daemon stop` and a backend stepping aside (both exit 0) stay down, a crash comes back within ten seconds, and an update exits 75 to come back on the new code. `daemon install` shuts down a backend started any other way first; while that one held the pid, the launchd one would keep stepping aside.
+**launchd keeps it up.** The agent is `~/Library/LaunchAgents/com.kimjisub.orca-usage.plist`. It names bun and `src/cli.jsx` by absolute path, since launchd's `PATH` has neither. `KeepAlive` restarts only on a non-zero exit, so `daemon stop` and a backend stepping aside (both exit 0) stay down, a crash comes back within ten seconds, and an update exits 75 to come back on the new code. `daemon install` shuts down a backend started by hand first; while that one held the pid, the launchd one would keep stepping aside.
+
+**Started by hand.** `orca-usage daemon run` in a terminal runs a backend in the foreground, for working on the code. The screen and the commands attach to it like any other (the header says `직접 띄운 백엔드`), but nothing restarts it: it goes when the terminal does, `daemon restart` leaves it alone, and after an update it exits and has to be run again.
 
 **Notifications.** The backend posts a macOS notification when it switches accounts on its own (the new account applies to sessions opened afterwards) and when an account needs signing in again (waiting will not fix it), once per account until it recovers. The 알림 row in the settings panel turns them off.
 
@@ -229,7 +241,7 @@ The account Orca is attached to comes from the Orca runtime, not from `~/.claude
 - **An account's name is red.** Its credentials are revoked or missing. Sign in to that account again in Orca; the backend notices on the next poll.
 - **The header says `백엔드 버전 다름`.** The screen and the backend run different code, usually after updating by hand. `orca-usage daemon restart`, then reopen the screen.
 - **A keychain prompt keeps coming back.** Choose "Always Allow" for `security`. Under launchd there is no one to answer it.
-- **Two backends seem to be polling.** They cannot: the second exits at start. An old screen from before the backend existed still polls on its own, though; close it.
+- **Two backends seem to be polling.** They cannot: the second exits at start. An old screen from before the backend existed still polls on its own, though; close it. So does a screen from 1.1.0 (1b47161) left open: that version still started a backend itself when it lost one.
 
 ## Tests
 
