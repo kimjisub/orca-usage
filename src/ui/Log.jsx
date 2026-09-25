@@ -1,6 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { clockAt, shortSpan } from '../format.js'
+import { clockAt } from '../format.js'
 
 // 종류마다 이름과 색. 이름은 넉 자로 맞춰 세로가 줄로 읽힌다.
 const KIND = {
@@ -12,18 +12,26 @@ const KIND = {
 }
 const LABEL_WIDTH = 7
 
+/** 제목 한 줄을 빼고 목록에 돌아가는 줄 수. 스크롤 한계를 재는 쪽과 같은 값을 쓴다. */
+export const logVisibleRows = (height) => Math.max(1, height - 1)
+
 /**
  * 이 도구가 스스로 한 일의 기록.
  *
  * 알림은 8초 뒤 사라지고 자동 블록은 종류마다 마지막 하나만 보인다. "아까 왜
  * 계정이 바뀌었지" 는 지나고 나서 묻게 되므로 여기 남는다. 최신이 위다.
+ *
+ * 500건을 들고 있는데 화면에는 스무 줄 남짓만 들어간다. 위아래로 굴려 지난
+ * 것까지 본다. offset 은 맨 위에 놓을 항목의 자리이고 0 이 최신이다.
  */
-export function Log({ entries, now, height, columns }) {
+export function Log({ entries, now, offset = 0, height, columns }) {
   if (entries.length === 0) {
     return <Text color="gray">{'아직 기록이 없습니다'}</Text>
   }
-  // 제목 한 줄을 빼고 남는 만큼 그린다.
-  const shown = entries.slice(0, Math.max(1, height - 1))
+  const rows = logVisibleRows(height)
+  // 기록이 쌓이거나 창이 커지면 보던 자리가 목록 밖으로 나갈 수 있다.
+  const start = Math.min(Math.max(0, offset), Math.max(0, entries.length - rows))
+  const shown = entries.slice(start, start + rows)
   const withDate = (at) => now - at > 12 * 3_600_000
 
   return (
@@ -31,6 +39,10 @@ export function Log({ entries, now, height, columns }) {
       <Text wrap="truncate">
         <Text color="white">{'제어 기록'}</Text>
         <Text color="gray">{`  최근 ${entries.length}건`}</Text>
+        {/* 어디쯤 보고 있는지. 다 들어가면 굴릴 것이 없으므로 적지 않는다. */}
+        {entries.length > rows
+          ? <Text color="cyan">{`  ${start + 1}-${start + shown.length}  (위아래로, PgUp PgDn 으로 한 쪽씩)`}</Text>
+          : null}
       </Text>
       {shown.map((entry, index) => {
         const kind = KIND[entry.kind] ?? { label: entry.kind, color: 'gray' }

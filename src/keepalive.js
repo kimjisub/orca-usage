@@ -36,7 +36,7 @@ export function needsOpening(row, now = Date.now()) {
 // 만료된 지 이만큼 지난 토큰은 우리가 갱신한다. Orca 는 쓰는 계정만 갱신해서,
 // 안 쓰는 계정은 만료된 채 남는다. 실측 2026-09-07: 한 계정이 11시간째 만료
 // 상태였고 다른 셋은 살아 있었다. 그보다 짧으면 Orca 가 곧 돌릴 수 있으니 둔다.
-const REFRESH_AFTER_EXPIRY_MS = 60 * 60_000
+export const REFRESH_AFTER_EXPIRY_MS = 60 * 60_000
 
 /**
  * 창을 연다. 토큰이 살아 있으면 읽기만 한다. 만료된 지 오래면 갱신해 되쓴다.

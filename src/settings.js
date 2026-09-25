@@ -19,8 +19,6 @@ const GRAPH_MODES = new Set(['level', 'rate', 'schedule', 'score', 'log', 'setti
 const DEFAULTS = {
   graphMode: 'level',
   rangeIndex: 3,
-  showModelWindows: true,
-  showGraph: true,
   autoSwitch: false,
   keepAlive: false,
   tuning: {},

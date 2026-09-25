@@ -1,25 +1,14 @@
 import React from 'react'
 import { Text } from 'ink'
 import { colorForSeries } from '../chart.js'
-import { shortSpan, visibleWindows } from '../format.js'
+import { shortSpan } from '../format.js'
 import { Bar } from './Bar.jsx'
 
-/** 계정 하나가 차지하는 줄 수. 클릭 좌표를 행으로 되짚을 때 쓴다. */
-// 배지는 계정마다 하나만 붙는다. 셋 넷씩 달리면 어느 것이 급한지 알 수 없다.
-//
-// 한도가 찬 것도 배지로 말한다. 이름 색으로만 알리면 "왜 빨간가" 가 화면에
-// 안 적혀 있어 매번 숫자를 되짚어야 한다. 이름 색은 자격증명이 끊긴 계정에
-// 남겨 둔다. 그쪽은 한도와 달리 기다려도 안 풀리고 사람이 로그인해야 한다.
-export const BADGES = {
-  blocked: { text: '한도 임박', color: 'red' },
-  spurt: { text: '소진 권장', color: '#ff9f0a' },
-  use: { text: '우선 사용', color: 'green' },
-  spare: { text: '사용 자제', color: 'gray' },
-}
-export const ACTIVE_MARK = '*' 
+export const ACTIVE_MARK = '*'
 
-export function blockHeight(row, showModelWindows = true) {
-  const windows = visibleWindows(row.usage?.windows, showModelWindows).length
+/** 계정 하나가 차지하는 줄 수. 클릭 좌표를 행으로 되짚을 때 쓴다. */
+export function blockHeight(row) {
+  const windows = (row.usage?.windows ?? []).length
   const credits = row.credits?.available ? 1 : 0
   return 1 + (windows || 1) + credits + 1 // 머리글 + 창들(없으면 안내 1줄) + 크레딧 + 빈 줄
 }
@@ -30,22 +19,24 @@ export function blockHeight(row, showModelWindows = true) {
  * 값이 안 바뀌면 그건 알려야 한다. 낡은 숫자를 최신으로 읽게 두면 안 된다.
  */
 function staleTag(row, now, staleAfterMs) {
+  const old = row.fetchedAt && now - row.fetchedAt > staleAfterMs
+    ? `${shortSpan(now - row.fetchedAt)} 전 값`
+    : null
   // 사유가 대기 안내보다 먼저다. 자격증명이 끊긴 계정은 조회가 한 번도 성공한
   // 적이 없어 usage 가 비는데, 순서가 반대면 이름만 빨갛고 까닭이 안 적힌다.
-  if (row.note) return row.note
+  // 사유가 있는데 막대도 서 있으면 그 숫자가 언제 것인지를 함께 적는다. 조회가
+  // 실패해도 Orca 가 지난 값을 함께 주므로, 사유만 있으면 막대를 지금 값으로
+  // 읽게 된다.
+  if (row.note) return old ? `${row.note}, ${old}` : row.note
   if (!row.usage) return '대기 중'
-  if (row.fetchedAt && now - row.fetchedAt > staleAfterMs) {
-    return `${shortSpan(now - row.fetchedAt)} 전 값`
-  }
-  return null
+  return old
 }
 
 export function AccountBlock({
-  row, active, dimmed, selected, now, barWidth, showModelWindows, staleAfterMs, badge,
+  row, active, dimmed, selected, now, barWidth, staleAfterMs,
 }) {
   const tag = staleTag(row, now, staleAfterMs)
-  const mark = BADGES[badge]
-  const windows = visibleWindows(row.usage?.windows, showModelWindows)
+  const windows = row.usage?.windows ?? []
   return (
     <>
       {/* 좁은 화면에서 접히면 한 계정이 두 줄을 먹어 아래가 통째로 밀린다. */}
@@ -60,7 +51,6 @@ export function AccountBlock({
         <Text color={row.authFailed ? 'red' : dimmed ? 'gray' : 'white'} bold={!dimmed}>{row.email}</Text>
         {dimmed ? <Text color="gray">{'  숨김'}</Text> : null}
         {row.label ? <Text color="gray">{`  [${row.label}]`}</Text> : null}
-        {mark ? <Text color={mark.color} bold>{`  ${mark.text}`}</Text> : null}
         {tag ? <Text color="gray">{`  ${tag}`}</Text> : null}
       </Text>
 

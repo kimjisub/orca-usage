@@ -46,7 +46,7 @@ function ScoreBar({ parts, width: barWidth }) {
  * 지표마다 무엇을 재는지와 계정별 원값을 함께 적고, 이 화면에서 바로 가중치를
  * 옮길 수 있게 했다.
  */
-export function Score({ scored, activeId, useId, decision, selected, height, columns }) {
+export function Score({ scored, activeId, useId, decision, selected, editing = false, height, columns }) {
   const ranked = [...scored].sort((a, b) => b.score.total - a.score.total)
   const parts = ranked[0]?.score.parts ?? []
   const wide = columns >= WIDE
@@ -60,7 +60,10 @@ export function Score({ scored, activeId, useId, decision, selected, height, col
     <Box flexDirection="column">
       <Text wrap="truncate">
         <Text color="white">{'판정'}</Text>
-        <Text color="gray">{'  세 지표에 가중치를 곱해 더한 점수다'}</Text>
+        {/* 좌우는 패널을 옮기는 키이기도 하다. 지금 어느 쪽으로 가는지 적는다. */}
+        {editing
+          ? <Text color="yellow" bold>{'  수정 중  좌우로 가중치를 바꿉니다'}</Text>
+          : <Text color="gray">{'  세 지표에 가중치를 곱해 더한 점수다'}</Text>}
       </Text>
       {shown.map((entry) => (
         <Text key={entry.row.id} wrap="truncate">
@@ -88,9 +91,10 @@ export function Score({ scored, activeId, useId, decision, selected, height, col
         const on = index === selected
         return (
           <Text key={part.key} wrap="truncate">
-            <Text color="cyan" bold>{on ? '> ' : '  '}</Text>
+            <Text color={on && editing ? 'yellow' : 'cyan'} bold>{on ? '> ' : '  '}</Text>
             <Text color={PART_COLOR[part.key]}>{pad(`${BLOCKS[part.key]} ${part.label}`, LABEL_WIDTH)}</Text>
-            <Text color={on ? 'white' : 'gray'} bold>{String(part.weight).padStart(5)}</Text>
+            {/* 고치는 중인 값은 뒤집어 어느 것이 움직이는지 가린다. */}
+            <Text color={on ? 'white' : 'gray'} bold inverse={on && editing}>{String(part.weight).padStart(5)}</Text>
             <Text color="gray">{'   '}</Text>
             {/* 계정마다 이 지표의 원값. 가중치를 곱하기 전이라 지표끼리 견줄 수 있다. */}
             {shown.map((entry) => (
@@ -103,7 +107,9 @@ export function Score({ scored, activeId, useId, decision, selected, height, col
         )
       })}
       {wide ? null : <Text color="gray" wrap="truncate">{`  ${parts[selected]?.what ?? ''}`}</Text>}
-      <Text color="gray" wrap="truncate">{`  ${parts[selected]?.how ?? ''}  (위아래로 고르고 좌우로 가중치를 바꿉니다)`}</Text>
+      <Text color="gray" wrap="truncate">
+        {`  ${parts[selected]?.how ?? ''}  ${editing ? '(0 으로 기본값, Enter 나 Esc 로 끝냅니다)' : '(위아래로 고르고 Enter 로 수정합니다)'}`}
+      </Text>
       <Text wrap="truncate">
         <Text color="gray">{'  전환  '}</Text>
         <Text color={decision?.action === 'switch' ? 'green' : 'gray'}>

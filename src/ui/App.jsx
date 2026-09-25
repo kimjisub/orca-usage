@@ -7,23 +7,23 @@ import { RANGES } from '../chart.js'
 import { activeAccountIds, selectClaudeAccount } from '../orca-rpc.js'
 import { selectCodexAccount } from '../orca-limits.js'
 import { loadSettings, saveSettings } from '../settings.js'
-import { TUNABLES, TUNING_DEFAULTS, applyTuning, formatTuning, tuning } from '../tuning.js'
-import { cellWidth, shortSpan, visibleWindows } from '../format.js'
+import { TUNABLES, TUNING_DEFAULTS, applyTuning, tuning } from '../tuning.js'
+import { cellWidth, shortSpan } from '../format.js'
 import { useFullscreen } from '../fullscreen.js'
 import { isMouseSequence, parseMouseClick, useMouseReporting } from '../mouse.js'
 import { pollOnce, rowsFromCache } from '../poller.js'
 import { loadHistory } from '../store.js'
-import { ACTIVE_MARK, AccountBlock, BADGES, blockHeight } from './AccountBlock.jsx'
+import { AccountBlock, blockHeight } from './AccountBlock.jsx'
 import { TotalBars, totalBarsHeight } from './TotalBars.jsx'
 import { AUTO_BLOCK_ROWS, Advice, AutoBlock, Graph, OverviewGraph, adviceHeight } from './Graph.jsx'
 import { Hit, HitRoot } from './Hit.jsx'
 import { Schedule } from './Schedule.jsx'
-import { Log } from './Log.jsx'
+import { Log, logVisibleRows } from './Log.jsx'
 import { Settings } from './Settings.jsx'
-import { Help } from './Help.jsx'
+import { Help, helpRows, helpVisibleRows } from './Help.jsx'
 import { Score } from './Score.jsx'
 import { log, loadLog } from '../log.js'
-import { needsOpening, openWindow } from '../keepalive.js'
+import { REFRESH_AFTER_EXPIRY_MS, needsOpening, openWindow } from '../keepalive.js'
 
 const HEADER_ROWS = 2
 // 활성 계정만 따로 확인하는 주기. 사용량 조회와 달리 소켓 한 번이라 가볍고,
@@ -33,6 +33,10 @@ const ACTIVE_POLL_MS = 5000
 const QUIT_WINDOW_MS = 3000
 // 섹션 머리글. 계정 수와 창 구조가 provider 마다 달라 목록을 갈라 세운다.
 const PROVIDER_LABEL = { claude: 'Claude', codex: 'Codex' }
+// 합계 줄이 앉는 선택 자리. 계정은 0 부터라 음수를 쓰고, 탭 줄(-2)을 비켜 간다.
+const TOTAL_AT = { claude: -1, codex: -3 }
+const TOTAL_PROVIDER = { '-1': 'claude', '-3': 'codex' }
+const totalAt = (provider) => TOTAL_AT[provider] ?? TOTAL_AT.claude
 // 오른쪽 패널이 보여줄 것. d 가 이 순서로 돌고 탭도 이 순서다.
 const GRAPH_TABS = [
   { mode: 'level', label: '사용량' },
@@ -47,27 +51,19 @@ const GRAPH_TABS = [
 // 여섯 칸을 빼고 서른 칸은 있어야 선이 형태를 갖춘다. 화면 폭이 아니라 목록이
 // 쓰고 남는 칸으로 재는 이유는, 목록 폭이 긴 이메일을 따라 늘기 때문이다.
 const MIN_GRAPH_WIDTH = 36
-// 범례부터 접는다. 범례는 고정 문구라 추천의 한 줄보다 덜 급하다.
-const MIN_LEGEND_ROWS = 34
 // 이보다 낮으면 모델별 창을 접고 추천도 첫 줄만 남긴다. 계정마다 한 줄씩 벌어
 // 계정 수가 더 들어간다.
 const TIGHT_ROWS = 30
-// 빈 줄 하나와 범례 한 줄.
-const LEGEND_ROWS = 2
-// 라벨을 짧게 둔다. 아래 한 줄에 범례까지 같이 실려서 길면 통째로 밀린다.
+// 라벨을 짧게 둔다. 한 줄에 다 실려야 해서 길면 통째로 밀린다. 패널 이동은
+// 좌우 화살표와 탭 클릭이라 키가 없다.
 const ACTIONS = [
-  { key: 'r', label: '조회' },
-  { key: 't', label: '토큰' },
-  { key: 'd', label: '모드' },
-  { key: 'f', label: 'Fable' },
+  { key: 'r', label: '전체 재조회' },
+  { key: 't', label: '토큰 갱신' },
+  { key: 'a', label: '자동 전환' },
+  { key: 'o', label: '창 미리 열기' },
   { key: 'w', label: '기간' },
-  { key: 'a', label: '자동' },
-  { key: 'o', label: '사이클' },
-  { key: 'x', label: '숨김' },
-  { key: 's', label: '설정' },
-  { key: '?', label: '도움말' },
-  { key: 'enter', label: '전환' },
-  { key: 'g', label: '그래프' },
+  { key: 'x', label: '숨기기' },
+  { key: 'enter', label: '계정 전환' },
   { key: 'q', label: '종료' },
 ]
 
@@ -95,9 +91,6 @@ function Header({ nextPollAt, busy, now, message, autoSwitch, direct }) {
   )
 }
 
-// 어떤 표시가 있고 무슨 색인지만 알린다. 글자가 곧 뜻이라 부연을 붙이면 한 줄을
-// 넘겨 통째로 잘린다. 자세한 설명은 --help 에 있다.
-
 function ActionBar() {
   return (
     <Text wrap="truncate">
@@ -115,8 +108,8 @@ function ActionBar() {
 // 탭 줄의 클릭 좌표를 재는 자리. 계정 번호와 안 겹치는 값이면 된다.
 const TAB_HIT = -2
 
-// 탭 줄의 머리. 여기부터 탭이 늘어선다.
-const TAB_LEAD = ' d '
+// 탭 줄의 머리. 여기부터 탭이 늘어선다. 좌우 화살표로 옮긴다는 것을 적어 둔다.
+const TAB_LEAD = ' <> '
 
 /**
  * 탭이 차지하는 열 범위. 클릭한 자리가 어느 탭인지 여기서 가른다.
@@ -166,27 +159,6 @@ function GraphTabs({ mode, width }) {
   )
 }
 
-/**
- * 범례. 지금 화면에 붙어 있는 배지만 적는다. 다섯을 늘 늘어놓으면 한 줄이
- * 통째로 차는데, 그 대부분은 지금 화면에 없는 것의 설명이다.
- */
-function BadgeLegend({ badges, hasActive }) {
-  const shown = [
-    ...(hasActive ? [{ text: `${ACTIVE_MARK} 활성`, color: 'yellow' }] : []),
-    ...Object.keys(BADGES).filter((key) => badges.has(key)).map((key) => BADGES[key]),
-  ]
-  if (shown.length === 0) return null
-  return (
-    <Text wrap="truncate">
-      {shown.map((badge, index) => (
-        <Text key={badge.text} color={badge.color} bold>
-          {index ? `  ${badge.text}` : badge.text}
-        </Text>
-      ))}
-    </Text>
-  )
-}
-
 export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const { exit } = useApp()
   const { columns, rows: screenRows } = useFullscreen()
@@ -207,9 +179,6 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       .filter((row) => showHidden || !hidden.has(row.id))
       .map((row) => (hidden.has(row.id) ? { ...row, hidden: true } : row)),
     [allRows, hidden, showHidden])
-  const hiddenCount = useMemo(
-    () => allRows.filter((row) => hidden.has(row.id)).length,
-    [allRows, hidden])
   // 어느 계정에 붙어 있는지는 Orca 만 안다. 행마다 박아 두면 일부만 갱신했을 때
   // 옛 표시가 남아 별표가 둘이 된다. 한 곳에 두고 화면이 그때그때 비교한다.
   const [activeIds, setActiveIds] = useState(
@@ -219,34 +188,17 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const activeIdsRef = useRef(activeIds)
   useEffect(() => { activeIdsRef.current = activeIds }, [activeIds])
 
-  useEffect(() => {
-    let alive = true
-    collectAllAccounts()
-      .then((all) => {
-        if (!alive) return
-        setAccounts(all)
-        // 그 사이 폴링이 채운 값을 지우지 않는다. 새로 합류한 계정만 캐시에서 온다.
-        setAllRows((previous) => {
-          const known = new Map(previous.map((row) => [row.id, row]))
-          return rowsFromCache(all).map((row) => ({
-            ...row, ...known.get(row.id), index: row.index, provider: row.provider,
-          }))
-        })
-      })
-      .catch(() => { /* Orca 가 꺼져 있으면 Claude 만 보여 준다 */ })
-      .finally(() => { if (alive) setAccountsReady(true) })
-    return () => { alive = false }
-  }, [])
   const [history, setHistory] = useState(() => loadHistory())
   // 저장된 선택은 초기값에서 바로 정한다. effect 로 나중에 덮으면 그 사이에
   // 들어온 클릭이 되감긴다. 계정 id 로 찾으므로 목록이 바뀌어도 안전하다.
   const [selected, setSelected] = useState(() => {
-    if (!saved.selectedId) return -1
+    if (!saved.selectedId) return TOTAL_AT.claude
+    // 합계 줄은 계정이 아니라 자리를 저장한다. 계정 id 와 섞이지 않게 접두를 붙인다.
+    if (saved.selectedId.startsWith('totals:')) return totalAt(saved.selectedId.slice(7))
     const index = accounts.findIndex((account) => account.id === saved.selectedId)
     return index >= 0 ? index : -1
   })
   const [busy, setBusy] = useState(false)
-  const [showGraph, setShowGraph] = useState(saved.showGraph)
   const [graphMode, setGraphMode] = useState(saved.graphMode)
   const [rangeIndex, setRangeIndex] = useState(saved.rangeIndex)
   // 기본은 꺼 둔다. 계정을 바꾸는 일이라 켜는 것은 사람이 정한다.
@@ -275,6 +227,14 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const [tuneAt, setTuneAt] = useState(0)
   // 판정 화면에서 고른 지표. 설정 화면의 항목 선택과 따로 둔다.
   const [scoreAt, setScoreAt] = useState(0)
+  // 값을 고치는 중인가. 설정과 판정은 좌우로 값을 옮기는데, 그 손놀림이 패널
+  // 이동과 같은 키라 Enter 로 한 번 들어와야 값이 움직인다. 그러지 않으면
+  // 탭을 옮기려다 가중치가 바뀌고, 바뀐 줄도 모른 채 순위가 달라진다.
+  const [editing, setEditing] = useState(false)
+  // 기록 화면에서 몇 건째부터 보고 있나. 최신이 0 이다.
+  const [logAt, setLogAt] = useState(0)
+  // 도움말도 한 화면에 안 들어간다. 같은 손놀림으로 굴린다.
+  const [helpAt, setHelpAt] = useState(0)
   // 폴링 안에서 읽으므로 ref 로도 들고 있는다. 의존성에 넣으면 기록이 쌓일 때마다
   // 폴링 타이머가 다시 걸린다.
   const logRef = useRef(logEntries)
@@ -283,10 +243,17 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     logRef.current = log(kind, text, detail).slice().reverse()
     setLogEntries(logRef.current)
   }, [])
+  // 탭을 옮기면 고치던 것을 닫는다. 다른 화면에서 좌우를 눌렀을 때 안 보이는
+  // 값이 움직이면 안 된다. 기록도 맨 위로 되돌려 최신부터 보인다.
+  useEffect(() => {
+    setEditing(false)
+    setLogAt(0)
+    setHelpAt(0)
+  }, [graphMode])
+
   const lastSwitchAt = useRef(saved.lastSwitchAt)
   const switching = useRef(false)
   const [decision, setDecision] = useState(null)
-  const [showModelWindows, setShowModelWindows] = useState(saved.showModelWindows)
   const [message, setMessage] = useState(null)
   const [now, setNow] = useState(Date.now())
   const [nextPollAt, setNextPollAt] = useState(Date.now() + intervalMs)
@@ -303,20 +270,58 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   // 막대 줄은 들여쓰기 5, 창 이름 7, 막대, 퍼센트 5, 남은 시간 9 와 상자의 테두리
   // 둘에 패딩 둘로 이뤄진다. 폭이 모자라면 막대부터 줄여야 줄이 안 접힌다.
   const barWidth = Math.max(8, Math.min(26, columns - 30))
-  // 추천과 전체 합계는 Claude 안에서만 선다. Codex 는 창이 7d 하나뿐이라
-  // 같은 자로 재면 5h 가 빈 것처럼 읽힌다.
+  // 추천과 판정, 자동 전환은 Claude 안에서만 선다. Codex 는 창이 7d 하나뿐이라
+  // 5h 를 보는 판단을 같은 자로 재면 빈 값이 된다. 합계 막대는 provider 마다
+  // 따로 서므로 Codex 도 자기 창으로 집계된다.
   // 숨긴 계정은 펼쳐 보는 중에도 추천과 합계에서 빠진다. 숨겼다는 것은 쓰지
   // 않겠다는 뜻이라, 목록에 잠깐 꺼내 본다고 판단 대상이 되면 안 된다.
   const claudeRows = useMemo(
     () => rows.filter((row) => row.provider === 'claude' && !row.hidden),
     [rows])
+  const codexRows = useMemo(
+    () => rows.filter((row) => row.provider === 'codex' && !row.hidden),
+    [rows])
+  const totalRowsFor = useCallback(
+    (provider) => (provider === 'codex' ? codexRows : claudeRows),
+    [claudeRows, codexRows])
+
+  /**
+   * 위아래로 오갈 수 있는 자리를 화면에 그려지는 순서대로 늘어놓는다. provider
+   * 가 바뀌는 자리마다 그 provider 의 합계 줄이 계정들 앞에 선다. 인덱스를
+   * 더하고 빼는 식으로 옮기면 음수인 합계 자리를 건너뛰거나 두 번 들른다.
+   */
+  const stops = useMemo(() => {
+    const list = []
+    let previous = null
+    rows.forEach((row, index) => {
+      if (row.provider !== previous) {
+        list.push(totalAt(row.provider))
+        previous = row.provider
+      }
+      list.push(index)
+    })
+    return list
+  }, [rows])
+
+  const moveSelection = useCallback((step) => {
+    setSelected((current) => {
+      const at = stops.indexOf(current)
+      // 고르고 있던 계정이 사라졌다. 맨 앞으로 되돌린다.
+      if (at < 0) return stops[0] ?? TOTAL_AT.claude
+      return stops[Math.min(stops.length - 1, Math.max(0, at + step))]
+    })
+  }, [stops])
 
   // 목록이 그래프와 나란히 설 때 필요한 폭. 내용이 정한다.
   const listWidth = useMemo(() => {
     const labelOf = (row) => (row.label ? row.label.length + 4 : 0)
-    // 머리글: 들여쓰기와 번호, 별표 자리, 이름, 요금제, 배지
+    // 사유는 이름 옆에 붙고 그 뒤에 값의 시각이 온다. 고정 폭을 두면 사유가
+    // 있는 계정에서 문장이 잘려 무엇을 해야 하는지가 사라지고, 사유가 없는
+    // 동안에는 그 자리가 빈 채로 그래프를 좁힌다. 지금 붙어 있는 것에 맞춘다.
+    const noteOf = (row) => (row.note ? cellWidth(row.note) + 14 : 11)
+    // 머리글: 들여쓰기와 번호, 별표 자리, 이름, 요금제, 값이 낡은 사유
     const header = 5 + 2 + Math.max(0, ...rows.map((row) => row.email.length))
-      + Math.max(0, ...rows.map(labelOf)) + 11
+      + Math.max(0, ...rows.map(labelOf)) + Math.max(11, ...rows.map(noteOf))
     // 막대 줄: 들여쓰기, 창 이름, 막대, 퍼센트, 남은 시간
     const bar = 5 + 7 + barWidth + 5 + 9
     // 좌우 패딩 둘과 테두리 둘
@@ -326,23 +331,17 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   // 설정은 건드리지 않는다. 창을 넓히면 접었던 것이 그대로 돌아와야 한다.
   // 그래프 상자의 테두리와 패딩 넷을 뺀 나머지가 그래프에 돌아간다.
   const graphFits = columns - listWidth - 4 >= MIN_GRAPH_WIDTH
-  const windowsFit = screenRows >= TIGHT_ROWS
   // 기록은 선이 아니라 글이라 좁은 화면에서도 읽힌다. 그래프 폭 조건을 안 건다.
   // 글로 된 패널은 선이 아니라서 좁아도 읽히지만, 좌우로 나눈 채로는 양쪽 다
   // 눌린다. 나란히 세울 자리가 없으면 고른 것 하나가 폭을 다 쓰고 계정 목록은
   // 그동안 접힌다. 사용량과 소비는 그래프라 접히던 대로 접힌다.
   const textPanel = ['schedule', 'score', 'log', 'settings', 'help'].includes(graphMode)
-  const graphVisible = showGraph && (graphFits || textPanel)
+  const graphVisible = graphFits || textPanel
   const listVisible = graphFits || !graphVisible
-  const windowsVisible = showModelWindows && windowsFit
-  const legendVisible = screenRows >= MIN_LEGEND_ROWS
   const adviceCompact = screenRows < TIGHT_ROWS
   const panelWidth = graphVisible && listVisible ? listWidth : columns
   // 오른쪽 상자 안쪽 폭. 테두리 둘과 패딩 둘을 뺀다.
   const graphWidth = (listVisible ? columns - panelWidth : columns) - 4
-  // 키 처리기가 읽는다. 의존성에 넣으면 창 크기가 바뀔 때마다 처리기가 다시 만들어진다.
-  const fit = useRef({ graph: true, windows: true })
-  fit.current = { graph: graphFits, windows: windowsFit }
 
   const running = useRef(false)
   const timer = useRef(null)
@@ -359,6 +358,54 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     clearTimeout(messageTimer.current)
     messageTimer.current = setTimeout(() => setMessage(null), 8000)
   }, [])
+
+  const mounted = useRef(true)
+  useEffect(() => () => { mounted.current = false }, [])
+  // 첫 목록은 알릴 것이 없다. 그 뒤로 달라진 것만 말한다.
+  const knownIds = useRef(null)
+
+  /**
+   * 계정 목록을 다시 세운다.
+   *
+   * Orca 에서 계정을 더하거나 뺀 것은 목록을 다시 읽어야 보인다. 첫 렌더에서
+   * 한 번만 읽으면 앱을 껐다 켜기 전까지 새 계정이 화면에 없다.
+   *
+   * @returns {Promise<object[]|null>} 새 목록. 읽지 못했으면 null 이다.
+   */
+  const reloadAccounts = useCallback(async () => {
+    let all
+    try {
+      all = await collectAllAccounts()
+    } catch {
+      return null // Orca 가 꺼져 있다. 들고 있던 목록을 그대로 쓴다.
+    }
+    if (!mounted.current) return null
+    const ids = new Set(all.map((account) => account.id))
+    if (knownIds.current) {
+      const added = all.filter((account) => !knownIds.current.has(account.id))
+      const gone = [...knownIds.current].filter((id) => !ids.has(id))
+      if (added.length) {
+        const names = added.map((account) => account.email).join(', ')
+        note('poll', `계정 합류: ${names}`)
+        notify(`계정 합류: ${names}`)
+      }
+      if (gone.length) note('poll', `계정 ${gone.length}개가 목록에서 빠짐`)
+    }
+    knownIds.current = ids
+    setAccounts(all)
+    // 그 사이 폴링이 채운 값을 지우지 않는다. 새로 합류한 계정만 캐시에서 온다.
+    setAllRows((previous) => {
+      const known = new Map(previous.map((row) => [row.id, row]))
+      return rowsFromCache(all).map((row) => ({
+        ...row, ...known.get(row.id), index: row.index, provider: row.provider,
+      }))
+    })
+    return all
+  }, [note, notify])
+
+  useEffect(() => {
+    reloadAccounts().finally(() => { if (mounted.current) setAccountsReady(true) })
+  }, [reloadAccounts])
   useEffect(() => () => clearTimeout(messageTimer.current), [])
 
   /**
@@ -392,15 +439,15 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     saveSettings({
       graphMode,
       rangeIndex,
-      showModelWindows,
-      showGraph,
       autoSwitch,
       keepAlive,
       tuning: tuned,
       hiddenIds,
-      selectedId: selected >= 0 ? (rows[selected]?.id ?? null) : null,
+      selectedId: selected >= 0
+        ? (rows[selected]?.id ?? null)
+        : `totals:${TOTAL_PROVIDER[selected] ?? 'claude'}`,
     })
-  }, [graphMode, rangeIndex, showModelWindows, showGraph, autoSwitch, keepAlive, tuned, hiddenIds, selected, rows])
+  }, [graphMode, rangeIndex, autoSwitch, keepAlive, tuned, hiddenIds, selected, rows])
 
   // poll 안에서 읽으므로 ref 로 둔다. 상태를 의존성에 넣으면 껐다 켤 때마다
   // 폴링 타이머가 통째로 다시 걸린다.
@@ -445,7 +492,10 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     running.current = true
     setBusy(true)
     try {
-      const fresh = await pollOnce(accounts, {
+      // 계정이 늘거나 줄었는지 먼저 본다. 한 계정만 손보는 호출(t 키)에서는
+      // 목록을 흔들 이유가 없으므로 건너뛴다.
+      const list = (only ? null : await reloadAccounts()) ?? accounts
+      const fresh = await pollOnce(list, {
         allowRefresh,
         force,
         forceRefresh,
@@ -504,7 +554,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       setBusy(false)
       setNextPollAt(Date.now() + intervalMs)
     }
-  }, [accounts, allowRefresh, intervalMs, notify, maybeSwitch])
+  }, [accounts, allowRefresh, intervalMs, notify, maybeSwitch, reloadAccounts])
 
   // 주기 조회. 첫 바퀴는 바로 돈다.
   useEffect(() => {
@@ -527,12 +577,26 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     poll({ force: true })
   }, [notify, poll, intervalMs])
 
+  /**
+   * 고른 계정의 토큰을 다시 만든다.
+   *
+   * Orca 가 들고 있는 계정은 그쪽이 토큰을 돌린다. 둘이 같은 refresh token 을
+   * 돌리면 rotation 에 한쪽이 revoke 되므로 평소에는 손대지 않는다. 다만 Orca
+   * 는 지금 쓰는 계정만 돌려서 나머지는 만료된 채 남는다. 만료된 지 오래된
+   * 것은 Orca 가 손을 놓은 것이라 우리가 집는다. 사이클 트리거가 쓰는 기준과
+   * 같은 값을 쓴다. 둘이 어긋나면 화면에서 거부당한 계정을 백그라운드가 조용히
+   * 갱신하게 된다.
+   */
   const doToken = useCallback(() => {
     const row = rows[selected]
     if (!row) return notify('계정을 고른 뒤 눌러 주세요')
     if (!allowRefresh) return notify('갱신이 꺼져 있습니다')
-    if (rows.some((item) => item.source === 'orca')) {
-      return notify('Orca 가 토큰을 관리 중입니다. 재로그인은 Orca 에서 합니다')
+    if (row.provider === 'codex') return notify('Codex 토큰은 Orca 만 다룹니다')
+    if (row.source === 'orca') {
+      const expiredFor = typeof row.expiresAt === 'number' ? Date.now() - row.expiresAt : null
+      if (expiredFor == null || expiredFor < REFRESH_AFTER_EXPIRY_MS) {
+        return notify('Orca 가 토큰을 관리 중입니다. 만료된 지 한 시간 넘은 계정만 손으로 갱신합니다')
+      }
     }
     notify(`${row.email} 토큰 재생성`)
     poll({ force: true, forceRefresh: true, only: [row.id] })
@@ -595,42 +659,38 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   /**
    * 고른 계정을 숨기거나 되돌린다.
    *
-   * 지금 붙어 있는 계정은 숨기지 않는다. 어느 계정으로 돌고 있는지는 감추면
-   * 안 되는 사실이라, 화면에서 사라지면 그다음 판단이 전부 어긋난다.
+   * 지금 붙어 있는 계정도 숨는다. 한 provider 의 계정을 하나만 쓰는 동안 나머지
+   * 목록이 자리만 먹는 일이 있고, 그때 붙어 있는 것이 어느 것인지는 이미 알고
+   * 있다. 숨긴 계정은 X 로 언제든 꺼내 본다.
    */
   const toggleHidden = useCallback(() => {
     const row = rows[selected]
     if (!row) return notify('계정을 고른 뒤 눌러 주세요')
-    if (row.id === activeIds[row.provider]) return notify('붙어 있는 계정은 숨길 수 없습니다')
     setHiddenIds((ids) => {
       const next = ids.includes(row.id) ? ids.filter((id) => id !== row.id) : [...ids, row.id]
       notify(next.includes(row.id) ? `${row.email} 숨김` : `${row.email} 다시 보임`)
       return next
     })
-  }, [rows, selected, activeIds, notify])
+  }, [rows, selected, notify])
 
   const runAction = useCallback((key) => {
     if (key === 'r') doRefresh()
     else if (key === 't') doToken()
-    else if (key === 'g') {
-      // 화면이 좁아 접힌 상태에서 설정만 뒤집히면, 다음에 넓은 창에서 그래프가
-      // 말없이 사라진다.
-      if (!fit.current.graph) notify('화면이 좁아 그래프를 접었습니다')
-      else setShowGraph((value) => !value)
-    }
     else if (key === 'x') toggleHidden()
     else if (key === 'X') setShowHidden((value) => !value)
-    else if (key === 's') setGraphMode('settings')
-    else if (key === '?') setGraphMode('help')
     else if (key === 'o') {
       setKeepAlive((value) => {
-        notify(value ? '사이클 자동트리거 끔' : '사이클 자동트리거 켬 (닫힌 5h 창을 요청 하나로 엽니다)')
+        notify(value
+          ? '창 미리 열기 끔. 안 쓰는 계정의 리셋 시계가 멈춥니다'
+          : '창 미리 열기 켬. 닫힌 5h 와 7d 창을 요청 하나로 엽니다')
         return !value
       })
     }
     else if (key === 'a') {
       setAutoSwitch((value) => {
-        notify(value ? '자동 전환 끔' : `자동 전환 켬 (활성이 ${tuning().switchAt}% 넘으면 갈아탐)`)
+        notify(value
+          ? '자동 전환 끔. 계정은 Enter 로 손수 옮깁니다'
+          : `자동 전환 켬. 활성이 ${tuning().switchAt}% 를 넘고 다른 곳이 ${tuning().switchMargin}%p 여유로우면 옮깁니다`)
         return !value
       })
     }
@@ -641,18 +701,8 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
         return next
       })
     }
-    else if (key === 'f') {
-      if (!fit.current.windows) notify('화면이 낮아 모델별 창을 접었습니다')
-      else {
-        setShowModelWindows((value) => {
-          notify(value ? 'Fable 숨김' : 'Fable 표시')
-          return !value
-        })
-      }
-    }
-    else if (key === 'd') stepTab(1)
     else if (key === 'q') exit()
-  }, [doRefresh, doToken, exit, notify, stepTab, toggleHidden])
+  }, [doRefresh, doToken, exit, notify, toggleHidden])
 
   useInput((input, key) => {
     // 마우스 리포팅을 켜 두면 클릭 좌표가 `[<0;100;12M` 같은 문자열로 여기
@@ -663,66 +713,82 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
       if (click) onClick(click.row, click.column)
       return
     }
+    // 설정과 판정은 좌우로 값을 옮기는 화면이다. 그 좌우는 패널을 옮기는 키와
+    // 같으므로, Enter 로 한 번 들어와야 값이 움직인다.
+    const tunes = graphMode === 'settings' || graphMode === 'score'
+    const tuning = tunes && editing
+    // 기록과 도움말은 한 화면에 다 안 들어간다. 위아래가 목록 대신 이쪽을 굴린다.
+    const logRows = logVisibleRows(layout.graphHeight - 1)
+    const maxLog = Math.max(0, logEntries.length - logRows)
+    const helpBody = helpVisibleRows(layout.graphHeight - 1)
+    const maxHelp = Math.max(0, helpRows(graphWidth).length - helpBody)
+
     if (key.escape || (key.ctrl && input === 'c')) {
+      // 고치던 중이면 그것부터 닫는다. 종료를 되묻는 것은 그다음이다.
+      if (key.escape && tuning) return setEditing(false)
       const at = Date.now()
       if (at - quitAt.current < QUIT_WINDOW_MS) return exit()
       quitAt.current = at
       return notify('한 번 더 누르면 종료합니다. q 는 바로 끝냅니다')
     }
-    if (key.return) return switchToSelected()
-    // 설정 화면에서는 위아래가 항목을, 좌우가 값을 옮긴다. 계정 목록은 그동안
-    // 그대로 있고 화살표만 이쪽으로 간다.
-    // 좌우는 탭을 옮긴다. 값을 옮기는 화면에서는 그쪽이 먼저라 d 로 옮긴다.
-    const tunes = graphMode === 'settings' || graphMode === 'score'
-    if (!tunes) {
-      if (key.leftArrow) return stepTab(-1)
-      if (key.rightArrow) return stepTab(1)
+
+    /** 값을 고치는 화면이면 수정모드를 여닫고, 아니면 고른 계정으로 옮긴다. */
+    const enter = () => {
+      if (!tunes) return switchToSelected()
+      setEditing((value) => {
+        if (!value) notify('수정 중입니다. 좌우로 값을 바꾸고 Enter 나 Esc 로 끝냅니다')
+        return !value
+      })
     }
-    if (graphMode === 'settings') {
-      if (key.downArrow) return setTuneAt((at) => Math.min(TUNABLES.length - 1, at + 1))
-      if (key.upArrow) return setTuneAt((at) => Math.max(0, at - 1))
-      if (key.leftArrow) return nudge(-1)
-      if (key.rightArrow) return nudge(1)
+    /** 값을 한 칸 옮긴다. 어느 화면인지에 따라 대상이 갈린다. */
+    const nudgeHere = (direction) => (
+      graphMode === 'settings' ? nudge(direction) : nudgeWeight(direction))
+    /** 위아래가 무엇을 옮기는지는 지금 보고 있는 패널이 정한다. */
+    const step = (direction) => {
+      if (graphMode === 'settings') {
+        return setTuneAt((at) => Math.min(TUNABLES.length - 1, Math.max(0, at + direction)))
+      }
+      if (graphMode === 'score') {
+        return setScoreAt((at) => Math.min(WEIGHT_KEYS.length - 1, Math.max(0, at + direction)))
+      }
+      if (graphMode === 'log') {
+        return setLogAt((at) => Math.min(maxLog, Math.max(0, at + direction)))
+      }
+      if (graphMode === 'help') {
+        return setHelpAt((at) => Math.min(maxHelp, Math.max(0, at + direction)))
+      }
+      return moveSelection(direction)
     }
-    // 판정 화면에서도 같은 손놀림으로 가중치를 옮긴다. 순위가 바뀌는 것을 보면서
-    // 맞추는 자리라 설정 화면까지 다녀오게 하면 감이 끊긴다.
-    if (graphMode === 'score') {
-      if (key.downArrow) return setScoreAt((at) => Math.min(WEIGHT_KEYS.length - 1, at + 1))
-      if (key.upArrow) return setScoreAt((at) => Math.max(0, at - 1))
-      if (key.leftArrow) return nudgeWeight(-1)
-      if (key.rightArrow) return nudgeWeight(1)
-    }
-    if (key.downArrow) return setSelected((i) => Math.min(rows.length - 1, i + 1))
-    if (key.upArrow) return setSelected((i) => Math.max(-1, i - 1))
+
+    if (key.return) return enter()
+    if (key.leftArrow) return tuning ? nudgeHere(-1) : stepTab(-1)
+    if (key.rightArrow) return tuning ? nudgeHere(1) : stepTab(1)
+    // 기록은 500건까지 쌓인다. 한 줄씩으로는 지난주에 닿지 못한다.
+    const page = graphMode === 'log' ? logRows : graphMode === 'help' ? helpBody : 1
+    if (key.pageDown) return step(page)
+    if (key.pageUp) return step(-page)
+    if (key.downArrow) return step(1)
+    if (key.upArrow) return step(-1)
     // 빠른 연타나 붙여넣기는 여러 글자가 한 번에 들어온다. 글자마다 처리해야
-    // 'fd' 같은 입력이 통째로 버려지지 않는다.
+    // 'fg' 같은 입력이 통째로 버려지지 않는다.
     for (const char of input) {
       // 빠른 연타나 붙여넣기로 여러 글자가 한 입력에 실려 오면 ink 가 특수키
       // 판정을 하지 않는다. 개행도 여기서 직접 받아야 엔터가 묻히지 않는다.
-      if (char === '\r' || char === '\n') switchToSelected()
-      else if (graphMode === 'score' && 'jkhl0'.includes(char)) {
-        if (char === 'j') setScoreAt((at) => Math.min(WEIGHT_KEYS.length - 1, at + 1))
-        else if (char === 'k') setScoreAt((at) => Math.max(0, at - 1))
-        else if (char === 'h') nudgeWeight(-1)
-        else if (char === 'l') nudgeWeight(1)
-        else nudgeWeight(0)
+      if (char === '\r' || char === '\n') enter()
+      else if (tuning && 'hl0'.includes(char)) {
+        if (char === 'h') nudgeHere(-1)
+        else if (char === 'l') nudgeHere(1)
+        else nudgeHere(0)
       }
-      else if (graphMode === 'settings' && 'jkhl0'.includes(char)) {
-        if (char === 'j') setTuneAt((at) => Math.min(TUNABLES.length - 1, at + 1))
-        else if (char === 'k') setTuneAt((at) => Math.max(0, at - 1))
-        else if (char === 'h') nudge(-1)
-        else if (char === 'l') nudge(1)
-        else nudge(0)
-      }
-      else if (char === 'j') setSelected((i) => Math.min(rows.length - 1, i + 1))
-      else if (char === 'k') setSelected((i) => Math.max(-1, i - 1))
-      else if (char === '0') setSelected(-1)
+      else if (char === 'j') step(1)
+      else if (char === 'k') step(-1)
+      else if (char === '0') setSelected(stops[0] ?? TOTAL_AT.claude)
       else if (char >= '1' && char <= '9') {
         // 화면에 적힌 번호로 찾는다. 배열 위치로 세면 숨긴 계정이 있을 때
         // 눌린 숫자와 골라지는 계정이 어긋난다.
         const at = rows.findIndex((row) => row.index === Number(char))
         if (at >= 0) setSelected(at)
-      } else if ('rtdfgqwaosxX?'.includes(char)) runAction(char)
+      } else if ('rtqwaoxX'.includes(char)) runAction(char)
     }
   })
 
@@ -764,22 +830,20 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const view = useMemo(() => {
     const count = rows.length
     if (count === 0) return { start: 0, end: 0 }
-    const blocks = rows.map((row) => blockHeight(row, windowsVisible))
+    const blocks = rows.map((row) => blockHeight(row))
     const isHead = (index) => index === 0 || rows[index].provider !== rows[index - 1].provider
-    // 구간이 차지하는 줄 수. 첫 행에는 늘 머리글이 붙고 안쪽은 provider 가 바뀔
-    // 때 붙는다. 렌더가 그리는 규칙과 같아야 한다.
+    // 구간이 차지하는 줄 수. 첫 행에는 늘 합계 블록이 붙고 안쪽은 provider 가
+    // 바뀔 때 붙는다. 렌더가 그리는 규칙과 같아야 한다.
+    const headRows = (index) => totalBarsHeight(totalRowsFor(rows[index].provider))
     const rowsIn = (start, end) => {
       let sum = 0
       for (let index = start; index < end; index += 1) {
-        sum += blocks[index] + (index === start || isHead(index) ? 1 : 0)
+        sum += blocks[index] + (index === start || isHead(index) ? headRows(index) : 0)
       }
       return sum
     }
     const budget = layout.panelHeight - 2
-      - (hiddenCount > 0 ? 1 : 0)
-      - totalBarsHeight(claudeRows, windowsVisible)
       - adviceHeight(adviceCompact) - AUTO_BLOCK_ROWS
-      - (legendVisible ? LEGEND_ROWS : 0)
     if (rowsIn(0, count) <= budget) {
       viewStart.current = 0
       return { start: 0, end: count }
@@ -801,7 +865,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     }
     viewStart.current = start
     return { start, end }
-  }, [rows, selected, claudeRows, windowsVisible, legendVisible, adviceCompact, hiddenCount, layout.panelHeight])
+  }, [rows, selected, totalRowsFor, adviceCompact, layout.panelHeight])
 
   const onClick = useCallback((row, column) => {
     // 마우스는 1 부터 세고 배치 좌표는 0 부터 센다.
@@ -830,13 +894,15 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
 
   useMouseReporting()
 
-  // 추천은 계정 목록의 배지와 아래 요약이 함께 쓴다. 한 번만 계산한다.
+  // 추천 요약과 자동 전환이 같은 판단을 쓴다. 한 번만 계산한다.
   const tip = useMemo(() => advise(claudeRows, history, now), [claudeRows, history, now])
   // 판정 화면이 쓰는 지표. advise 와 같은 계산이라 화면과 판단이 어긋나지 않는다.
   const scored = useMemo(
     () => scoreAccounts(claudeRows, history, now).filter((entry) => entry.hasData),
     [claudeRows, history, now])
   const current = selected >= 0 ? rows[selected] : null
+  // 합계 줄을 고르고 있을 때 그릴 전체 그래프. 고른 줄의 provider 를 따른다.
+  const overviewProvider = TOTAL_PROVIDER[selected] ?? 'claude'
   if (rows.length === 0) return <Text color="red">{'Orca 계정을 찾지 못했습니다.'}</Text>
 
   return (
@@ -864,24 +930,21 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
           paddingX={1}
           overflow="hidden"
         >
-          <Hit id={-1} onMeasure={onHit}>
-            <TotalBars
-            rows={claudeRows}
-            width={layout.panelWidth - 4}
-            now={now}
-            showModelWindows={windowsVisible}
-              selected={selected === -1}
-            />
-          </Hit>
           {rows.slice(view.start, view.end).map((row, offset) => {
             const index = view.start + offset
             return (
             <React.Fragment key={row.id}>
               {index === view.start || row.provider !== rows[index - 1]?.provider
                 ? (
-                  <Box flexShrink={0}>
-                    <Text color="gray">{PROVIDER_LABEL[row.provider] ?? row.provider}</Text>
-                  </Box>
+                  <Hit id={totalAt(row.provider)} onMeasure={onHit}>
+                    <TotalBars
+                      rows={totalRowsFor(row.provider)}
+                      label={PROVIDER_LABEL[row.provider] ?? row.provider}
+                      width={layout.panelWidth - 4}
+                      now={now}
+                      selected={selected === totalAt(row.provider)}
+                    />
+                  </Hit>
                   )
                 : null}
             <Hit id={index} onMeasure={onHit}>
@@ -892,23 +955,12 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
                 selected={index === selected}
                 now={now}
                 barWidth={barWidth}
-                showModelWindows={windowsVisible}
                 staleAfterMs={intervalMs * 4}
-                badge={tip?.badges?.[row.id]}
               />
             </Hit>
             </React.Fragment>
             )
           })}
-          {hiddenCount > 0
-            ? (
-              <Box flexShrink={0}>
-                <Text color="gray" wrap="truncate">
-                  {`  숨김 ${hiddenCount}개  X 로 ${showHidden ? '접기' : '펼치기'}`}
-                </Text>
-              </Box>
-              )
-            : null}
           <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
             <Advice tip={tip} compact={adviceCompact} />
             <AutoBlock
@@ -918,17 +970,6 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
               failures={recentFailures}
               now={now}
             />
-            {legendVisible
-              ? (
-                <>
-                  <Text> </Text>
-                  <BadgeLegend
-                    badges={new Set(Object.values(tip?.badges ?? {}))}
-                    hasActive={rows.some((row) => row.id === activeIds[row.provider])}
-                  />
-                </>
-                )
-              : null}
           </Box>
         </Box>
         ) : null}
@@ -954,19 +995,29 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
                 useId={tip?.use?.row.id}
                 decision={decision}
                 selected={scoreAt}
+                editing={editing}
                 height={layout.graphHeight - 1}
                 columns={graphWidth}
               />
               )
             : graphMode === 'settings'
-            ? <Settings values={tuned} selected={tuneAt} height={layout.graphHeight - 1} columns={graphWidth} />
+            ? (
+              <Settings
+                values={tuned}
+                selected={tuneAt}
+                editing={editing}
+                height={layout.graphHeight - 1}
+                columns={graphWidth}
+              />
+              )
             : graphMode === 'help'
-            ? <Help height={layout.graphHeight - 1} columns={graphWidth} />
+            ? <Help offset={helpAt} height={layout.graphHeight - 1} columns={graphWidth} />
             : graphMode === 'log'
             ? (
               <Log
                 entries={logEntries}
                 now={now}
+                offset={logAt}
                 height={layout.graphHeight - 1}
                 columns={graphWidth}
               />
@@ -989,21 +1040,20 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
                     columns={graphWidth}
                     height={layout.graphHeight - 1}
                     mode={graphMode}
-                    showModelWindows={windowsVisible}
-                    rangeMs={RANGES[rangeIndex].ms}
+                        rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
                     style={graphStyle}
                   />
                   )
                 : (
                   <OverviewGraph
-                    accounts={claudeRows}
+                    accounts={totalRowsFor(overviewProvider)}
+                    label={PROVIDER_LABEL[overviewProvider]}
                     historyById={history}
                     columns={graphWidth}
                     height={layout.graphHeight - 1}
                     mode={graphMode}
-                    showModelWindows={windowsVisible}
-                    rangeMs={RANGES[rangeIndex].ms}
+                        rangeMs={RANGES[rangeIndex].ms}
                     rangeLabel={RANGES[rangeIndex].label}
                     style={graphStyle}
                   />

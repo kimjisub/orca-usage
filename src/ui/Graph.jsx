@@ -1,7 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { chartSeries, colorForSeries, keysForMode, overviewSeries } from '../chart.js'
-import { shortSpan, visibleWindows } from '../format.js'
+import { shortSpan } from '../format.js'
 import { AXIS_WIDTH, Chart } from './Chart.jsx'
 import { DOTS_PER_CELL_X } from '../braille.js'
 
@@ -82,13 +82,14 @@ function planPanels(height, keys) {
  * 창은 서로 다른 한도라 합칠 수 없으니 따로 그린다.
  */
 export function OverviewGraph({
-  accounts, historyById, columns, height, mode, showModelWindows, rangeMs, rangeLabel, style = 'braille',
+  accounts, historyById, columns, height, mode, rangeMs, rangeLabel,
+  style = 'braille', label = '',
 }) {
   // 계정 그래프와 같은 창을 그린다. 어느 계정에든 있는 창은 다 센다. 첫 계정만
   // 보면 그 계정이 아직 조회 전일 때 창이 통째로 빈다.
   const seen = new Set()
   for (const account of accounts) {
-    for (const window of visibleWindows(account.usage?.windows, showModelWindows)) seen.add(window.label)
+    for (const window of account.usage?.windows ?? []) seen.add(window.label)
   }
   const all = [...seen]
   const keys = keysForMode(all.length ? all : ['5h', '7d'], mode)
@@ -105,7 +106,9 @@ export function OverviewGraph({
   return (
     <Box flexDirection="column">
       <Text wrap="truncate">
-        <Text color="white">{mode === 'rate' ? '전체 소비' : '전체 사용량'}</Text>
+        {/* 어느 provider 의 합인지 적는다. Claude 와 Codex 는 창이 달라 같은
+            제목으로는 무엇을 보고 있는지 알 수 없다. */}
+        <Text color="white">{`${label ? `${label} ` : ''}${mode === 'rate' ? '전체 소비' : '전체 사용량'}`}</Text>
         <Text color="gray">{`  ${MODE_LABEL[mode]}`}</Text>
         <Text color="cyan">{`  ${rangeLabel}`}</Text>
       </Text>
@@ -232,9 +235,9 @@ export function AutoBlock({ rows, keepAlive, autoSwitch, failures, now }) {
 
 /** 계정 패널. 그 계정의 창을 하나씩 따로 그린다. */
 export function Graph({
-  row, history, columns, height, mode, showModelWindows, rangeMs, rangeLabel, style = 'braille',
+  row, history, columns, height, mode, rangeMs, rangeLabel, style = 'braille',
 }) {
-  const all = visibleWindows(row.usage?.windows, showModelWindows).map((w) => w.label)
+  const all = (row.usage?.windows ?? []).map((w) => w.label)
   const keys = keysForMode(all, mode)
   if (!history?.length || keys.length === 0) {
     return <Empty text={`${row.email} - 표본이 쌓이면 여기에 그려집니다`} />
