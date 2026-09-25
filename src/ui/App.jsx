@@ -12,6 +12,9 @@ import { cellWidth, shortSpan } from '../core/format.js'
 import { useFullscreen } from './fullscreen.js'
 import { isMouseSequence, parseMouseClick, useMouseReporting } from './mouse.js'
 import { pollOnce, rowsFromCache } from '../engine/poller.js'
+import { createPorts } from '../daemon/ports.js'
+
+const PORTS = createPorts()
 import { loadHistory } from '../adapters/store/store.js'
 import { AccountBlock, blockHeight } from './AccountBlock.jsx'
 import { TotalBars, totalBarsHeight } from './TotalBars.jsx'
@@ -23,7 +26,8 @@ import { Settings } from './Settings.jsx'
 import { Help, helpRows, helpVisibleRows } from './Help.jsx'
 import { Score } from './Score.jsx'
 import { log, loadLog } from '../adapters/store/log.js'
-import { REFRESH_AFTER_EXPIRY_MS, needsOpening, openWindow } from '../adapters/keychain/keepalive.js'
+import { openWindow } from '../adapters/keychain/keepalive.js'
+import { REFRESH_AFTER_EXPIRY_MS, needsOpening } from '../core/policy.js'
 
 const HEADER_ROWS = 2
 // 활성 계정만 따로 확인하는 주기. 사용량 조회와 달리 소켓 한 번이라 가볍고,
@@ -168,7 +172,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   // 물어야 해서 곧이어 합류한다. 기다렸다 함께 그리면 첫 화면이 그만큼 늦다.
   const [accounts, setAccounts] = useState(() => collectAccounts())
   const [accountsReady, setAccountsReady] = useState(false)
-  const [allRows, setAllRows] = useState(() => rowsFromCache(accounts))
+  const [allRows, setAllRows] = useState(() => rowsFromCache(accounts, PORTS.store))
   // 숨긴 계정. 조회와 기록은 그대로 두고 화면과 판단에서만 뺀다. 다시 꺼냈을 때
   // 히스토리가 끊겨 있으면 그래프가 그 구간만 비어 보인다.
   const [hiddenIds, setHiddenIds] = useState(() => saved.hiddenIds)
@@ -215,7 +219,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const refreshSeen = useRef(null)
   const authSeen = useRef(null)
   if (refreshSeen.current == null) {
-    const seeded = rowsFromCache(accounts)
+    const seeded = rowsFromCache(accounts, PORTS.store)
     refreshSeen.current = new Map(seeded.filter((row) => row.refreshedAt).map((row) => [row.id, row.refreshedAt]))
     authSeen.current = new Set(seeded.filter((row) => row.authFailed).map((row) => row.id))
   }
@@ -240,7 +244,8 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
   const logRef = useRef(logEntries)
   // 기록은 여러 곳에서 남긴다. 한 곳으로 모아 화면 갱신을 함께 처리한다.
   const note = useCallback((kind, text, detail) => {
-    logRef.current = log(kind, text, detail).slice().reverse()
+    log(kind, text, detail)
+    logRef.current = loadLog()
     setLogEntries(logRef.current)
   }, [])
   // 탭을 옮기면 고치던 것을 닫는다. 다른 화면에서 좌우를 눌렀을 때 안 보이는
@@ -396,7 +401,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
     // 그 사이 폴링이 채운 값을 지우지 않는다. 새로 합류한 계정만 캐시에서 온다.
     setAllRows((previous) => {
       const known = new Map(previous.map((row) => [row.id, row]))
-      return rowsFromCache(all).map((row) => ({
+      return rowsFromCache(all, PORTS.store).map((row) => ({
         ...row, ...known.get(row.id), index: row.index, provider: row.provider,
       }))
     })
@@ -504,7 +509,7 @@ export function App({ intervalMs, allowRefresh, graphStyle = 'braille' }) {
         onAccount: (row) => {
           setAllRows((previous) => previous.map((item) => (item.id === row.id ? row : item)))
         },
-      })
+      }, PORTS)
       setAllRows((previous) => previous.map((item) => fresh.find((r) => r.id === item.id) ?? item))
       setHistory(loadHistory())
       const shape = fresh.map((row) => `${row.id}:${row.source}:${row.note ?? ''}`).join('|')

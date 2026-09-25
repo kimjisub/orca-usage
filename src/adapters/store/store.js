@@ -78,6 +78,13 @@ function writeJson(file, value) {
 
 export const loadCache = () => readJson(CACHE_PATH, {})
 export const saveCache = (cache) => writeJson(CACHE_PATH, cache)
+
+/** 한 계정의 캐시 항목에 값을 덧댄다. 조회 한 바퀴가 끝난 뒤에만 부른다. */
+export function updateCache(accountId, patch) {
+  const cache = loadCache()
+  cache[accountId] = { ...(cache[accountId] ?? {}), ...patch }
+  saveCache(cache)
+}
 export const loadHistory = () => readJson(HISTORY_PATH, {})
 export const saveHistory = (history) => writeJson(HISTORY_PATH, history)
 

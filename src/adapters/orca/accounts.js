@@ -60,10 +60,29 @@ function labelFor(meta) {
  * Orca 가 안 뜬 상태에서도 Claude 는 보여야 하므로 실패는 삼킨다.
  */
 export async function collectAllAccounts() {
+  return (await listAccounts()).accounts
+}
+
+/**
+ * 계정 전부와, Codex 목록을 실제로 받았는지.
+ *
+ * Orca 가 꺼져 있으면 Codex 는 빈 목록으로 온다. 그것을 "Codex 계정이 없다" 로
+ * 읽으면 목록을 다시 읽을 때마다 계정이 빠졌다 합류했다를 오간다. 부르는 쪽이
+ * 들고 있던 Codex 목록을 유지할 수 있게 알려 준다.
+ *
+ * @returns {Promise<{accounts: object[], codexKnown: boolean}>}
+ */
+export async function listAccounts() {
   const claude = collectAccounts()
   let codex = []
+  let codexKnown = true
   try {
     codex = (await fetchCodex()).accounts
-  } catch { /* Orca 가 꺼져 있으면 Claude 만 보여 준다 */ }
-  return [...claude, ...codex].map((account, index) => ({ ...account, index: index + 1 }))
+  } catch {
+    codexKnown = false
+  }
+  return {
+    accounts: [...claude, ...codex].map((account, index) => ({ ...account, index: index + 1 })),
+    codexKnown,
+  }
 }

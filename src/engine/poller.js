@@ -1,7 +1,3 @@
-import { CredentialError } from '../adapters/keychain/credentials.js'
-import { REFRESH_MIN_GAP_MS, ensureToken, fetchUsage, normalize } from '../adapters/keychain/oauth.js'
-import { fetchOrcaLimits } from '../adapters/orca/orca-limits.js'
-import { appendHistory, loadCache, loadHistory, saveCache, saveHistory } from '../adapters/store/store.js'
 
 // 429 는 Retry-After: 0 으로 오는 일이 잦다. 그대로 믿으면 쉬지 않고 다시 때린다.
 // 연속으로 막히면 배로 늘려 예산을 그만 태운다.
@@ -14,19 +10,25 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * 계정 목록을 한 바퀴 돌며 사용량을 갱신한다. 계정 하나가 끝날 때마다
- * onAccount 를 불러 화면이 순서대로 채워지게 한다.
+ * onAccount 를 부른다.
+ *
+ * 입출력은 전부 ports 로 받는다(engine/ports.js). 이 파일은 순서만 정한다.
  *
  * @param {object} options
  * @param {boolean} options.force        캐시와 백오프를 무시한다 (r 키)
  * @param {boolean} options.forceRefresh 만료 전이라도 토큰을 다시 만든다 (t 키)
  * @param {string[]} [options.only]      이 계정 id 만 돈다
+ * @param {(result: {ok: boolean, error: string|null}) => void} [options.onOrca]
+ *   Orca 에 물은 결과. 연결 상태를 따로 들고 있는 쪽이 쓴다
+ * @param {import('./ports.js').Ports} ports
  */
 export async function pollOnce(accounts, {
   allowRefresh = true, force = false, forceRefresh = false, only = null,
-  freshForMs = 270_000, onAccount = () => {},
-} = {}) {
-  const cache = loadCache()
-  const history = loadHistory()
+  freshForMs = 270_000, onAccount = () => {}, onOrca = () => {},
+} = {}, ports) {
+  const { orca: orcaPort, keychain, store } = ports
+  const cache = store.loadCache()
+  const history = store.loadHistory()
   const targets = only ? accounts.filter((a) => only.includes(a.id)) : accounts
   const rows = []
 
@@ -39,8 +41,12 @@ export async function pollOnce(accounts, {
   let orca = null
   if (!forceRefresh) {
     try {
-      orca = await fetchOrcaLimits({ refreshUsage: true })
-    } catch { /* Orca 가 안 떠 있다. 아래에서 계정마다 직접 조회한다 */ }
+      orca = await orcaPort.fetchLimits({ refreshUsage: true })
+      onOrca({ ok: true, error: null })
+    } catch (error) {
+      // Orca 가 안 떠 있다. 아래에서 계정마다 직접 조회한다.
+      onOrca({ ok: false, error: error?.message ?? String(error) })
+    }
   }
   const activeIds = orca
     ? { claude: orca.claude.activeId, codex: orca.codex.activeId }
@@ -73,7 +79,7 @@ export async function pollOnce(accounts, {
           delete entry.blockedStreak
           // 표본 시각은 Orca 가 받은 시각이다. 지금 시각으로 찍으면 Orca 가 갱신을
           // 미룬 동안 같은 값이 새 표본처럼 쌓인다. 같은 시각이면 store 가 거른다.
-          appendHistory(history, account.id, got.usage.windows, entry.fetchedAt)
+          store.appendHistory(history, account.id, got.usage.windows, entry.fetchedAt)
         }
       }
       cache[account.id] = entry
@@ -111,7 +117,7 @@ export async function pollOnce(accounts, {
       if (position) await sleep(GAP_MS)
       let token = null
       try {
-        const result = await ensureToken(account.id, {
+        const result = await keychain.ensureToken(account.id, {
           allowRefresh, lastRefreshAt: entry.refreshedAt ?? 0, force: forceRefresh,
         })
         token = result.token
@@ -127,21 +133,22 @@ export async function pollOnce(accounts, {
         // 재로그인하라고 말하게 된다.
         if (result.authFailed) entry.authFailed = true
       } catch (error) {
-        note = error instanceof CredentialError ? error.message : String(error)
-        if (error instanceof CredentialError && error.fatal) entry.authFailed = true
+        note = error instanceof Error ? error.message : String(error)
+        // 다시 로그인해야 풀리는 실패만 표시한다(CredentialError 의 fatal).
+        if (error?.fatal) entry.authFailed = true
       }
 
       if (token) {
-        const { data, error, retryAfter } = await fetchUsage(token)
+        const { data, error, retryAfter } = await keychain.fetchUsage(token)
         if (data) {
-          const usage = normalize(data)
+          const usage = keychain.normalize(data)
           entry.usage = usage
           entry.fetchedAt = Date.now()
           delete entry.retryUntil
           delete entry.blockedStreak
           // 조회가 통했으면 그 토큰은 살아 있다. 앞서 붙은 표시를 여기서 푼다.
           delete entry.authFailed
-          appendHistory(history, account.id, usage.windows)
+          store.appendHistory(history, account.id, usage.windows)
         } else if (error === '호출 예산 소진') {
           // 백오프는 스스로 풀리고 사용자가 할 일이 없다. 사유로 남기면 계정
           // 이름 옆이 늘 시끄러워지므로, 값이 오래 낡았을 때만 화면이 알린다.
@@ -173,14 +180,14 @@ export async function pollOnce(accounts, {
     onAccount(row)
   }
 
-  saveCache(cache)
-  saveHistory(history)
+  store.saveCache(cache)
+  store.saveHistory(history)
   return rows
 }
 
-/** 조회 없이 캐시만 읽어 첫 화면을 즉시 채운다. */
-export function rowsFromCache(accounts) {
-  const cache = loadCache()
+/** 조회 없이 캐시만 읽어 계정 행을 세운다. 백엔드가 켜자마자 보여 줄 값이다. */
+export function rowsFromCache(accounts, store) {
+  const cache = store.loadCache()
   return accounts.map((account) => {
     const entry = cache[account.id] ?? {}
     return {

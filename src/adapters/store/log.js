@@ -56,11 +56,12 @@ function flush() {
  */
 export function log(kind, text, detail = {}) {
   const list = load()
-  list.push({ at: Date.now(), kind, text, ...detail })
+  const entry = { at: Date.now(), kind, text, ...detail }
+  list.push(entry)
   const keep = tuning().logKeep
   if (list.length > keep) list.splice(0, list.length - keep)
   flush()
-  return list
+  return entry
 }
 
 /** 최근 것부터. 화면은 위가 최신이다. */

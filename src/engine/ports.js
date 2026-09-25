@@ -1,0 +1,59 @@
+/**
+ * 엔진이 바깥 세계와 말하는 자리. 엔진은 이 모양만 알고, 무엇이 뒤에 붙는지는
+ * 모른다. 실제 어댑터는 daemon/ports.js 가 묶고, 테스트는 가짜를 넣는다.
+ *
+ * 이 파일은 계약만 적는다. 코드는 없다.
+ *
+ * @typedef {object} Account
+ * @property {string} id
+ * @property {'claude'|'codex'} provider
+ * @property {string} email
+ * @property {string} label   요금제 꼬리표
+ * @property {number} index   화면에 적는 번호
+ *
+ * @typedef {object} OrcaPort
+ * @property {() => Promise<{accounts: Account[], codexKnown: boolean}>} listAccounts
+ *   Orca 가 아는 계정 전부. Claude 뒤에 Codex, 번호는 이어 매긴다. Orca 가 꺼져
+ *   있으면 Codex 를 못 받고 codexKnown 이 false 다
+ * @property {() => Promise<{claude: string|null, codex: string|null}>} activeIds
+ * @property {(provider: string, accountId: string) => Promise<void>} select
+ * @property {(options: {refreshUsage: boolean}) => Promise<object>} fetchLimits
+ *   Orca 가 들고 있는 계정별 한도 (adapters/orca/orca-limits.js 의 모양)
+ *
+ * @typedef {object} KeychainPort
+ * @property {(accountId: string, options: object) => Promise<object>} ensureToken
+ * @property {(token: string) => Promise<{data: object|null, error: string|null, retryAfter: number|null}>} fetchUsage
+ * @property {(data: object) => {windows: object[]}} normalize
+ * @property {(accountId: string) => Promise<number|null>} peekExpiry
+ * @property {(accountId: string) => Promise<{refreshed: boolean, expiresAt: number|null, note: string|null, authFailed: boolean}>} refresh
+ * @property {(accountId: string) => Promise<{ok: boolean, reason?: string, refreshed?: boolean}>} openWindow
+ *
+ * @typedef {object} StorePort
+ * @property {() => object} loadCache
+ * @property {(cache: object) => void} saveCache
+ * @property {(accountId: string, patch: object) => void} updateCache
+ * @property {() => object} loadHistory
+ * @property {(history: object) => void} saveHistory
+ * @property {(history: object, accountId: string, windows: object[], at?: number) => object} appendHistory
+ * @property {() => object} loadPolicy
+ * @property {(policy: object) => void} savePolicy
+ * @property {(kind: string, text: string, detail?: object) => object} log  남긴 한 줄을 돌려준다
+ * @property {() => object[]} loadLog  최신이 앞
+ *
+ * @typedef {object} NotifierPort
+ * @property {(title: string, body: string) => void} notify  실패해도 던지지 않는다
+ *
+ * @typedef {object} UpdaterPort
+ * @property {() => {version: string, commit: string|null, mode: string}} installed
+ * @property {() => Promise<{installed: string|null, latest: string|null, available: boolean, error: string|null}>} check
+ * @property {() => Promise<{from: string|null, to: string|null, changed: boolean}>} apply
+ *
+ * @typedef {object} Ports
+ * @property {OrcaPort} orca
+ * @property {KeychainPort} keychain
+ * @property {StorePort} store
+ * @property {NotifierPort} notifier
+ * @property {UpdaterPort} [updater]
+ */
+
+export {}

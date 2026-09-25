@@ -2,6 +2,7 @@ import React from 'react'
 import { render } from 'ink'
 import { collectAllAccounts } from './adapters/orca/accounts.js'
 import { pollOnce, rowsFromCache } from './engine/poller.js'
+import { createPorts } from './daemon/ports.js'
 import { App } from './ui/App.jsx'
 
 function parseArgs(argv) {
@@ -229,7 +230,7 @@ async function main() {
       allowRefresh: options.allowRefresh,
       force: true,
       freshForMs: 0,
-    })
+    }, createPorts())
     if (options.json) {
       process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`)
     } else {
@@ -246,7 +247,7 @@ async function main() {
 
   if (!process.stdin.isTTY) {
     // 파이프로 돌리면 대화형 화면이 의미가 없다. 캐시된 값만 한 번 찍는다.
-    for (const row of rowsFromCache(accounts)) {
+    for (const row of rowsFromCache(accounts, createPorts().store)) {
       const windows = (row.usage?.windows ?? [])
         .map((window) => `${window.label} ${Math.round(window.pct)}%`)
         .join('  ')
