@@ -9,7 +9,7 @@ import { answers, call, connect } from './client/connection.js'
 import { findBackend, waitForBackend, waitForGone } from './client/ensure.js'
 import { confirm } from './client/prompt.js'
 import { PLIST_PATH, inspect, kickstart, register, unregister } from './daemon/launchd.js'
-import { installMode } from './adapters/install/install.js'
+import { installMode, versionLabel } from './adapters/install/install.js'
 import { createUpdater, repoSlug } from './adapters/install/updater.js'
 
 const out = (text = '') => process.stdout.write(`${text}\n`)
@@ -341,6 +341,21 @@ async function updateCommand() {
   out(`${result.from} -> ${result.to}. 백엔드가 새 코드로 떴습니다 (pid ${after.pid})`)
 }
 
+// ---- 버전 ---------------------------------------------------------------
+
+/**
+ * 이 코드의 버전과, 백엔드가 떠 있으면 그 버전. 둘이 다르면 업데이트 뒤 한쪽만
+ * 새 코드로 도는 중이라 함께 보여 준다.
+ */
+async function versionCommand() {
+  const mine = versionLabel()
+  out(`orca-usage ${mine}`)
+  const hello = await answers()
+  if (!hello) return out('백엔드    떠 있지 않음')
+  const same = hello.version === mine ? '' : '  (다름. orca-usage daemon restart)'
+  return out(`백엔드    ${hello.version}, ${SOURCE_LABEL[hello.source] ?? hello.source}${same}`)
+}
+
 // ---- 화면 ---------------------------------------------------------------
 
 async function screen(graphStyle) {
@@ -380,6 +395,7 @@ async function main() {
   const { flags, words, graphStyle } = parseArgs(process.argv.slice(2))
   const [command, sub] = words
   if (flags.has('--help') || flags.has('-h') || command === 'help') return out(HELP)
+  if (flags.has('--version') || flags.has('-v') || command === 'version') return versionCommand()
   if (command === 'daemon') return daemonCommand(sub, flags)
   if (command === 'status') return statusCommand({ json: flags.has('--json') })
   if (command === 'update') return updateCommand()

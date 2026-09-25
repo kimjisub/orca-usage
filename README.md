@@ -133,6 +133,7 @@ orca-usage daemon restart      start again, on whatever code is installed
 orca-usage daemon stop         stop. The registration stays, so it starts at next login
 orca-usage daemon logs [-f]    the backend's log
 orca-usage daemon run          run the backend in this terminal (what launchd calls)
+orca-usage -v, --version       this code's version, and the backend's if it is running
 orca-usage --graph block       draw level lines with box characters instead of braille
 ```
 
@@ -239,7 +240,7 @@ The account Orca is attached to comes from the Orca runtime, not from `~/.claude
 - **`status` says the backend is down but launchd has it registered.** `orca-usage daemon logs` shows why it exited. A crash is restarted within ten seconds, so a backend that stays down usually fails at start: bun moved (run `daemon install` again to rewrite the paths) or the install folder was removed.
 - **The header says `Orca 연결 안 됨, 직접 조회`.** Orca is not running or its runtime did not answer. Claude accounts are polled directly meanwhile; Codex values stay as last seen.
 - **An account's name is red.** Its credentials are revoked or missing. Sign in to that account again in Orca; the backend notices on the next poll.
-- **The header says `백엔드 버전 다름`.** The screen and the backend run different code, usually after updating by hand. `orca-usage daemon restart`, then reopen the screen.
+- **The header shows `백엔드 <version>` in yellow.** The screen (its version is at the top left) and the backend run different code, usually after updating by hand. `orca-usage daemon restart`, then reopen the screen. `orca-usage -v` prints both.
 - **A keychain prompt keeps coming back.** Choose "Always Allow" for `security`. Under launchd there is no one to answer it.
 - **Two backends seem to be polling.** They cannot: the second exits at start. An old screen from before the backend existed still polls on its own, though; close it. So does a screen from 1.1.0 (1b47161) left open: that version still started a backend itself when it lost one.
 

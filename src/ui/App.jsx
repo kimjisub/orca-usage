@@ -79,7 +79,7 @@ function Header({ status, snapshot, hello, now, message }) {
         {/* Orca 없이 직접 치는 중이면 알린다. 값이 낡거나 백오프에 걸릴 수 있어서다. */}
         {snapshot.orca?.connected ? null : <Text color="yellow">{'Orca 연결 안 됨, 직접 조회  '}</Text>}
         {hello && hello.version !== SCREEN_VERSION
-          ? <Text color="yellow">{'백엔드 버전 다름  '}</Text>
+          ? <Text color="yellow">{`백엔드 ${hello.version}  `}</Text>
           : null}
         {snapshot.update?.available ? <Text color="cyan" bold>{'업데이트 있음 (u)  '}</Text> : null}
         {snapshot.policy?.autoSwitch ? <Text color="green" bold>{'자동 전환  '}</Text> : null}
@@ -94,7 +94,9 @@ function Header({ status, snapshot, hello, now, message }) {
       {/* 좁은 화면에서 두 덩이가 맞물려 접히면 머리글이 두 줄을 먹는다. */}
       <Box justifyContent="space-between" paddingX={1} flexShrink={0}>
         <Text wrap="truncate">
-          <Text color="white" bold>{'watching all accounts'}</Text>
+          {/* 이 화면의 버전. 백엔드와 다르면 오른쪽에 따로 알린다. */}
+          <Text color="white" bold>{'orca-usage '}</Text>
+          <Text color="gray">{SCREEN_VERSION}</Text>
           {message ? <Text color="yellow">{`   ${message}`}</Text> : null}
         </Text>
         <Text wrap="truncate">{right}</Text>

@@ -12,6 +12,7 @@ export const HELP = `orca-usage - Orca 가 관리하는 Claude 와 Codex 계정�
   orca-usage daemon stop         멈춥니다. 등록은 남아 다음 로그인에 뜹니다
   orca-usage daemon logs [-f]    백엔드 로그
   orca-usage daemon run          백엔드를 이 터미널에서 돌립니다 (launchd 가 부르는 것)
+  orca-usage -v, --version       이 코드와 백엔드의 버전
   orca-usage --graph block       누적 선을 점자 대신 박스 문자로 그립니다
 
 백엔드와 화면:
