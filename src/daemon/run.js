@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { DAEMON_PID, DAEMON_SOCKET, STATE_DIR } from '../paths.js'
 import { Engine } from '../engine/engine.js'
 import { versionLabel } from '../adapters/install/install.js'
+import { createUpdater } from '../adapters/install/updater.js'
 import { answers } from '../client/connection.js'
 import { acquirePid, releasePid } from './instance.js'
 import { createPorts } from './ports.js'
@@ -15,19 +16,22 @@ export const EXIT_RESTART = 75
 
 const say = (text) => process.stdout.write(`${new Date().toISOString()} ${text}\n`)
 
-/** 누가 띄웠나. launchd 는 plist 의 환경 변수로, 화면은 spawnDetached 가 알린다. */
+/**
+ * 누가 띄웠나. launchd 는 plist 의 환경 변수로, 화면이나 명령이 따로 띄운 것은
+ * spawnDetached 가 알린다.
+ */
 function launchedBy() {
   if (process.env.ORCA_USAGE_LAUNCHD) return 'launchd'
-  if (process.env.ORCA_USAGE_SPAWNED) return 'screen'
+  if (process.env.ORCA_USAGE_SPAWNED) return 'spawned'
   return 'manual'
 }
 
 /**
  * 백엔드를 돌린다. 끝나지 않는다(종료는 process.exit 로 한다).
  *
- * @param {{updater?: object}} [options] 업데이트 어댑터. 없으면 업데이트를 못 한다
+ * @param {{updater?: object}} [options] 업데이트 어댑터. 테스트가 바꿔 넣는다
  */
-export async function runDaemon({ updater } = {}) {
+export async function runDaemon({ updater = createUpdater() } = {}) {
   fs.mkdirSync(STATE_DIR, { recursive: true })
   // 자격증명 백업이 들어 있는 곳이다. 같은 사용자 말고는 못 들어오게 한다.
   fs.chmodSync(STATE_DIR, 0o700)

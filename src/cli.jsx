@@ -1,274 +1,328 @@
-import React from 'react'
-import { render } from 'ink'
-import { collectAllAccounts } from './adapters/orca/accounts.js'
-import { pollOnce, rowsFromCache } from './engine/poller.js'
-import { createPorts } from './daemon/ports.js'
-import { App } from './ui/App.jsx'
+import { spawn, spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { HELP } from './help-text.js'
+import { DAEMON_LOG, HOME, LOG_DIR, STATE_DIR } from './paths.js'
+import { clockAt, shortSpan } from './core/format.js'
+import { answers, call, connect } from './client/connection.js'
+import { ensureBackend, waitForBackend, waitForGone } from './client/ensure.js'
+import { PLIST_PATH, inspect, kickstart, register, unregister } from './daemon/launchd.js'
+import { spawnDetached } from './daemon/spawn.js'
+import { installMode } from './adapters/install/install.js'
+import { createUpdater, repoSlug } from './adapters/install/updater.js'
 
+const out = (text = '') => process.stdout.write(`${text}\n`)
+const fail = (text, code = 1) => {
+  process.stderr.write(`${text}\n`)
+  process.exitCode = code
+}
+const tilde = (file) => (file.startsWith(HOME) ? `~${file.slice(HOME.length)}` : file)
+const onOff = (value) => (value ? '켜짐' : '꺼짐')
+const SOURCE_LABEL = { launchd: 'launchd 가 띄움', spawned: '따로 띄움', manual: '손으로 띄움' }
+
+/**
+ * 인자를 명령과 옵션으로 가른다. --graph 만 값을 받는다.
+ *
+ * --interval 과 --no-refresh-tokens 는 없앴다. 조회 주기는 설정 탭의 값이
+ * 정본이고, 재인증은 백엔드의 정책이라 화면 실행 인자가 바꿀 것이 아니다.
+ */
 function parseArgs(argv) {
-  // 사용량 엔드포인트는 계정당 5분에 5회다(실측). 120초면 5분에 2.5회라 절반만 쓴다.
-  const options = { intervalMs: 120_000, allowRefresh: true, json: false, once: false, graphStyle: 'braille' }
+  const flags = new Set()
+  const words = []
+  let graphStyle = 'braille'
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
-    if (arg === '--interval') {
-      const seconds = Number(argv[index + 1])
-      // 뒤에 숫자가 없으면 그 자리를 건너뛰지 않는다. --interval --once 에서
-      // --once 가 삼켜지고 있었다.
-      if (Number.isFinite(seconds)) {
-        options.intervalMs = Math.max(60, seconds) * 1000
-        index += 1
-      }
-    } else if (arg === '--graph') {
-      // 점자 글리프가 칸을 다 안 채우는 폰트에서는 블록으로 돌린다.
+    if (arg === '--graph') {
       const style = argv[index + 1]
       if (style === 'braille' || style === 'block') {
-        options.graphStyle = style
+        graphStyle = style
         index += 1
       }
-    } else if (arg === '--no-refresh-tokens') {
-      options.allowRefresh = false
-    } else if (arg === '--json') {
-      options.json = true
-    } else if (arg === '--once') {
-      options.once = true
-    } else if (arg === '--help' || arg === '-h') {
-      options.help = true
+    } else if (arg.startsWith('-')) {
+      flags.add(arg)
+    } else {
+      words.push(arg)
     }
   }
-  return options
+  return { flags, words, graphStyle }
 }
 
-const HELP = `orca-usage - Orca 가 관리하는 Claude 와 Codex 계정들의 사용량을 봅니다.
+// ---- status -------------------------------------------------------------
 
-  orca-usage                     대화형 화면 (기본 120초 주기)
-  orca-usage --interval 600      조회 주기를 초로 지정 (최소 60)
-  orca-usage --once              한 번 조회하고 끝냅니다
-  orca-usage --json              JSON 으로 출력합니다 (--once 를 함께 쓰세요)
-  orca-usage --no-refresh-tokens 만료된 토큰을 갱신하지 않습니다
-  orca-usage --graph block       누적 선을 점자 대신 박스 문자로 그립니다
+/** 기록 중 사람이 알아야 할 것. 조회와 창 열기는 늘 돌아 여기서는 뺀다. */
+const NOTABLE = new Set(['switch', 'token', 'error'])
 
-그래프:
-  누적 선은 점자 문자로 그립니다. 한 칸이 세로 넷 가로 둘, 점 여덟 개라 박스
-  문자보다 세로 네 배, 가로 두 배로 잘게 그려집니다. btop 과 bottom 이 쓰는
-  방식입니다. 폰트가 점자 글리프를 칸에 다 못 채워 오른쪽에 틈이 보이면
-  --graph block 으로 돌립니다. 사용량 축은 0~100 으로 못 박습니다. 사용률은 그
-  자체로 눈금이 있어 축을 줄이면 같은 높이가 창마다 다른 뜻이 됩니다. 소비는
-  상한이 없어 관측 최댓값을 따릅니다. 5h 창이 세로의 절반을 쓰고 맨 아랫줄이
-  바닥선입니다.
+function updateLine(update) {
+  if (!update) return '아직 확인 전'
+  if (update.available) return `${update.installed} -> ${update.latest} 받을 수 있음.  orca-usage update`
+  if (update.error) return `확인 못 함: ${update.error}`
+  if (update.ahead) return `최신 (${update.installed}, push 안 한 커밋 ${update.ahead}개)`
+  return `최신 (${update.installed ?? '?'})`
+}
 
-사용량 출처:
-  Orca 가 계정별로 이미 조회해 둔 값을 받습니다. 우리가 따로 치면 같은 예산을
-  나눠 써 활성 계정이 429 에 걸립니다. Orca 가 꺼져 있으면 키체인의 자격증명으로
-  직접 조회하고, 머리글에 "Orca 연결 안 됨, 직접 조회" 가 뜹니다.
-
-화면 안에서:
-
-  r  전체 재조회
-     Orca 에 지금 다시 조회하라고 시키고 그 결과를 받습니다. 캐시가 신선해도
-     건너뛰지 않습니다. 이름 옆에 "3시간 전 값" 이 붙은 계정이 있을 때 씁니다.
-     사용량 엔드포인트는 계정당 5분에 5회라 이 한 번도 그 예산에서 나갑니다.
-     넘기면 그 계정만 백오프에 걸려 몇 분간 값이 안 바뀝니다. 누르지 않아도
-     조회 주기마다 스스로 돕니다.
-     계정 목록도 함께 다시 읽습니다. Orca 에서 계정을 더하거나 뺀 것이 다음
-     조회에 반영되므로 앱을 껐다 켜지 않아도 됩니다. 새로 합류한 계정은 기록에
-     남고 화면에도 한 줄 뜹니다.
-
-  t  선택한 계정의 토큰 갱신
-     고른 Claude 계정의 access token 을 refresh token 으로 다시 발급해 키체인에
-     써넣습니다. 만료된 지 한 시간 넘은 계정만 됩니다. Orca 와 우리가 같은
-     refresh token 을 함께 돌리면 rotation 에 한쪽이 revoke 되므로, 살아 있는
-     토큰은 Orca 에 맡깁니다. 다만 Orca 는 쓰는 계정만 돌려서 안 쓰는 계정은
-     만료된 채 남고, 한 시간이 지났으면 Orca 가 손을 놓은 것으로 봅니다.
-     o 를 켜 두었으면 그쪽이 알아서 하므로 이 키를 쓸 일이 없습니다.
-     Codex 토큰은 Orca 만 다룹니다.
-
-  a  자동 계정 전환 켜기/끄기
-     붙어 있는 계정이 한계에 가까워지면 Orca 를 여유로운 계정으로 옮깁니다.
-     Claude 계정 사이에서만 돕니다. 활성의 가장 빡빡한 창(5h 나 7d)이 전환
-     임계를 넘고 갈 곳이 전환 여유차만큼 더 여유로울 때 옮기고, 두 값 다
-     설정에서 고칩니다. 갈 곳의 주간 쿼터가 리셋에 사라질 판이거나, 활성을
-     아껴야 하거나, 점수가 여유차만큼 높아도 옮깁니다. 한 번 옮기면 쿨다운
-     동안 다시 옮기지 않고 그 시각은 앱을 껐다 켜도 이어집니다. 이미 떠 있는
-     터미널은 옛 계정으로 계속 돌고 바뀐 계정은 그다음 세션부터입니다.
-     기본은 꺼져 있습니다. 손으로 옮길 때는 계정을 고르고 Enter 입니다.
-
-  o  창 미리 열기 켜기/끄기
-     5h 나 7d 창이 닫힌 Claude 계정에 가장 싼 모델로 토큰 하나짜리 요청을 보내
-     창을 엽니다. 두 창은 첫 요청에서야 시계가 돌기 때문에, 안 쓰는 계정은
-     시계가 선 채로 있다가 나중에 쓰기 시작한 때부터 다섯 시간이나 이레를
-     온전히 기다려야 합니다. 미리 열어 두면 리셋이 주기적으로 와서 필요할 때
-     바로 씁니다. 비용은 사용률 정수 단위 아래라 화면에 0 으로 보이고, 같은
-     계정에는 쿨다운 안에 다시 보내지 않습니다. 만료된 지 한 시간 넘은 토큰도
-     여기서 함께 갱신합니다. 기본은 꺼져 있습니다.
-
-  w  그래프 기간 (3h~1M)
-  x  고른 계정 숨기기/되돌리기   X  숨긴 계정 펼치기/접기
-  q  종료
-  Ctrl+C 와 Esc 는 두 번 눌러야 끝납니다. q 는 한 번에 끝냅니다
-  위아래 또는 j k 로 선택하고, 숫자키로 바로 고릅니다. 클릭도 됩니다.
-  오른쪽 패널은 좌우 화살표로 옮기거나 탭을 눌러 고릅니다.
-  Enter 를 누르면 고른 계정으로 Orca 를 옮깁니다. 설정과 판정 화면에서는
-  Enter 가 수정모드를 여닫습니다. 그 안에서만 좌우가 값을 바꾸고, 밖에서는
-  좌우가 패널을 옮깁니다. Esc 로 수정모드를 닫습니다.
-
-오른쪽 패널 (좌우 화살표로 순환):
-  맨 위 탭 줄에 사용량, 소비, 일정, 판정, 기록, 설정, 도움말 일곱이 있고 지금
-  보는 것에 괄호가 칩니다. 탭을 눌러도 바뀝니다.
-
-판정:
-  계정마다 점수와 그 내역을 보입니다. 점수는 세 지표를 0 부터 1 로 눕히고
-  가중치를 곱해 더한 값이라 늘 0 부터 100 입니다.
-
-    뒤처짐  주간 창이 흐른 만큼 안 쓴 양. 창의 절반이 지났는데 20% 만 썼으면
-            30%p 입니다. 앞서 썼으면 0 이고 그때는 아껴 둘 계정입니다
-    단기    5h 창에 지금 남은 양. 100 에서 5h 사용률을 뺀 값입니다
-    여력    주간에 남은 양. 100 에서 7d 사용률을 뺀 값입니다
-
-  위쪽은 계정별 점수와 지표별 기여를 이어 붙인 막대입니다. 아래 표는 지표마다
-  가중치와 계정별 원값을 나란히 놓아, 그 숫자가 어디서 왔는지 보입니다.
-
-  위아래로 지표를 고르고 좌우로 가중치를 옮깁니다. 순위가 그 자리에서 다시
-  매겨지므로 설정 화면까지 가지 않고 맞출 수 있습니다. 같은 값이 설정 화면의
-  가중치 항목이고 저장도 함께 됩니다.
-
-설정 (s):
-  판단 기준을 고칩니다. 위아래로 항목을 고르고 좌우로 값을 옮기며, 0 을 누르면
-  그 항목만 기본값으로 돌아갑니다. 기본값에서 바뀐 값은 노란색입니다. 바꾼 값은
-  저장돼 다음에 켤 때도 남습니다.
-
-  측정된 사실과 서버에 대한 예의는 여기 없습니다. 5시간 창을 채우면 주간이
-  20%p 오른다는 것, 요청 사이 간격, 백오프, OAuth 주소는 사람이 정할 값이
-  아닙니다.
-  탭을 눌러도 바뀝니다.
-
-왼쪽 아래:
-  추천 두세 줄 다음에 자동 상태 한 줄이 옵니다. 추천은 지금 쓸 계정과 큰 작업을
-  돌릴 계정, 아껴둘 계정을 번호로 가리킵니다. 자동 줄은 마지막 조회와 사이클,
-  전환의 켜짐 여부를 보이고 최근 한 시간에 실패가 있었으면 건수를 붙입니다.
-  무슨 일이 있었는지는 기록 탭입니다.
-
-기록:
-  위아래로 굴려 보고 PgUp PgDn 으로 한 쪽씩 넘깁니다. 제목 옆에 몇 번째를 보고
-  있는지 적힙니다. 도움말 탭도 같은 손놀림으로 굴립니다.
-  이 도구가 스스로 한 일이 최신순으로 쌓입니다. 조회는 결과가 달라졌을 때만,
-  토큰 갱신과 사이클 트리거와 계정 전환은 일어날 때마다 남습니다. 실패는 빨간
-  글씨입니다. 알림은 8초 뒤 사라지므로 "아까 왜 계정이 바뀌었지" 는 여기서
-  봅니다. 최근 500건을 파일에 남기고 앱을 다시 띄워도 이어집니다. 사이클
-  트리거의 10분 쿨다운도 이 기록으로 판단합니다.
-
-일정 그래프:
-  앞으로 7일을 한 시간 한 칸으로 그립니다. 칸은 계정을 합친 주간 여력이라 어느
-  계정이든 열려 있으면 초록입니다. 리셋 시각은 확정이고, 그 사이는 히스토리에서
-  관측한 소비 속도로 이어 봅니다. 속도를 모르면 리셋만 반영합니다. 미래의 5h 는
-  예측하지 않습니다. 쓰기 시작해야 창이 열리는 구조라 지금 막힌 것이 언제 풀리는
-  지만 확정입니다. 오늘 행은 계정마다 따로 그려 누가 막혔고 언제 풀리는지를
-  보입니다. ! 는 리셋 전에 못 다 쓸 양이 15% 넘는 시간대입니다.
-
-사이클 자동트리거 (o):
-  기본은 꺼져 있습니다. 켜 두면 폴링마다 5h 나 7d 창이 안 열렸거나 닫힌 Claude 계정을
-  찾아 가장 싼 모델에 토큰 하나짜리 요청을 보내 창을 엽니다. 5h 와 7d 창은 첫
-  요청에서 시작하므로, 안 쓰는 계정은 리셋 시계가 서 있다가 나중에 쓰기 시작한
-  때부터 온전히 기다려야 합니다. 미리 열어 두면 시계가 돌아 리셋이 주기적으로
-  옵니다. 비용은 사용률 정수 단위 아래라 화면에 0 으로 보입니다. 같은 계정에는
-  10분 안에 다시 보내지 않습니다. 토큰이 만료된 지 한 시간 넘었으면 갱신합니다.
-  Orca 는 쓰는 계정만 갱신해서 안 쓰는 계정은 그대로 만료돼 있습니다.
-
-  t 가 손으로 하는 것도 같은 기준입니다. Orca 와 우리가 같은 refresh token 을
-  함께 돌리면 rotation 에 한쪽이 끊기므로, 살아 있는 토큰은 Orca 에 맡기고
-  만료된 지 한 시간 넘은 것만 집습니다. 이 트리거를 꺼 두었을 때 만료된 계정을
-  손으로 살리는 자리가 t 입니다. Codex 토큰은 Orca 만 다룹니다.
-
-자동 블록:
-  왼쪽 아래에 이 도구가 스스로 하는 일 네 가지가 보입니다. 조회(2분마다, Orca
-  또는 직접), 토큰 갱신(마지막에 갱신한 계정), 사이클(o, 마지막에 연 창), 전환
-  (a, 마지막 판단). 화면이 낮으면 한 줄로 접힙니다.
-
-계정 숨기기 (x):
-  안 쓰는 계정을 목록에서 뺍니다. 숨긴 계정은 전체 합계와 추천, 자동 전환에서
-  모두 빠집니다. X 로 펼쳐 보면 회색으로 나오고 그 상태에서도 판단에는 안
-  들어갑니다. 조회와 기록은 그대로 두므로 다시 꺼냈을 때 그래프가 이어집니다.
-  지금 붙어 있는 계정도 숨길 수 있습니다. 그러면 그 provider 의 합계에서도
-  빠지므로, 숫자가 안 맞아 보이면 X 로 펼쳐 확인합니다.
-
-자동 계정 전환:
-  a 로 켭니다. 기본은 꺼져 있습니다. Claude 계정 사이에서만 돕니다.
-  옮기는 이유는 넷입니다. 활성이 전환 임계를 넘었거나(막힘), 갈 곳의 주간
-  쿼터가 리셋에 사라질 판이거나(소멸), 활성을 아껴야 하거나(자제), 갈 곳의
-  점수가 전환 여유차만큼 높거나(점수)입니다.
-  활성 계정의 가장 빡빡한 창이 80% 를 넘고, 갈 곳이 15%p 넘게 여유로우면
-  Orca 런타임에 직접 요청해 계정을 바꿉니다. 한 번 옮기면 10분은 다시 옮기지
-  않습니다. 이미 떠 있는 터미널은 옛 계정으로 계속 돌고, 바뀐 계정은 그다음에
-  여는 세션부터 적용됩니다.
-
-계정 표시:
-  *         이름 앞의 별표는 Orca 가 지금 붙어 있는 계정입니다. provider 마다 따로입니다
-  [Max 20x] 이름 뒤 대괄호는 요금제입니다. Claude 는 계정 메타에서, Codex 는
-            Orca 가 계정마다 두는 auth.json 의 id_token 클레임에서 읽습니다.
-            Orca 가 목록에 실어 주는 값은 예전에 붙인 계정에서 비어 있습니다
-  리셋 크레딧  Codex 에만 있습니다. 쓰면 짧은 창이 즉시 비워집니다
-  이름 빨강  자격증명이 끊겨 다시 로그인해야 합니다. 사유는 이름 옆에 붙습니다
-  어느 계정을 쓸지는 왼쪽 아래 추천 줄이 번호로 가리킵니다. 그 판단의 근거는
-  판정 탭에 있습니다.
-`
-
-async function main() {
-  const argv = process.argv.slice(2)
-  if (argv[0] === 'daemon' && argv[1] === 'run') {
-    const { runDaemon } = await import('./daemon/run.js')
-    await runDaemon()
-    return
+async function statusCommand({ json = false } = {}) {
+  const [hello, launchd] = await Promise.all([answers(), inspect()])
+  let snapshot = null
+  let log = []
+  if (hello) {
+    snapshot = await call('snapshot')
+    log = await call('log')
   }
-  const options = parseArgs(argv)
-  if (options.help) {
-    process.stdout.write(HELP)
+
+  if (json) {
+    out(JSON.stringify({
+      running: Boolean(hello),
+      daemon: hello,
+      launchd: { ...launchd, plist: PLIST_PATH },
+      log: DAEMON_LOG,
+      snapshot,
+    }, null, 2))
+    process.exitCode = hello ? 0 : 3
     return
   }
 
-  const accounts = await collectAllAccounts()
-  if (accounts.length === 0) {
-    process.stderr.write('Orca 계정을 찾지 못했습니다.\n')
-    process.exitCode = 1
-    return
-  }
-
-  if (options.once || options.json) {
-    const rows = await pollOnce(accounts, {
-      allowRefresh: options.allowRefresh,
-      force: true,
-      freshForMs: 0,
-    }, createPorts())
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`)
+  if (!hello) {
+    out('백엔드   꺼짐')
+    if (launchd.registered) {
+      const exit = launchd.lastExit != null ? ` (마지막 종료 코드 ${launchd.lastExit})` : ''
+      out(`launchd  등록됨, 떠 있지 않음${exit}.  orca-usage daemon logs 로 이유를 봅니다`)
     } else {
-      for (const row of rows) {
-        const windows = (row.usage?.windows ?? [])
-          .map((window) => `${window.label} ${Math.round(window.pct)}%`)
-          .join('  ')
-        const tag = row.active ? ' *' : '  '
-        process.stdout.write(`${row.index}${tag} ${row.email}  ${windows}${row.note ? `  (${row.note})` : ''}\n`)
-      }
+      out('launchd  등록 안 됨.  orca-usage daemon install 로 등록합니다')
     }
+    process.exitCode = 3
     return
   }
 
-  if (!process.stdin.isTTY) {
-    // 파이프로 돌리면 대화형 화면이 의미가 없다. 캐시된 값만 한 번 찍는다.
-    for (const row of rowsFromCache(accounts, createPorts().store)) {
-      const windows = (row.usage?.windows ?? [])
-        .map((window) => `${window.label} ${Math.round(window.pct)}%`)
-        .join('  ')
-      process.stdout.write(`${row.index} ${row.email}  ${windows}\n`)
-    }
+  const now = Date.now()
+  const { poll, orca, policy, accounts } = snapshot
+  const count = (provider) => accounts.filter((row) => row.provider === provider).length
+  const hidden = accounts.filter((row) => row.hidden).length
+  const lastPoll = poll.lastAt
+    ? `마지막 ${clockAt(poll.lastAt)} ${poll.ok === false ? `실패 (${poll.error})` : '성공'}`
+    : '아직 안 돎'
+  const next = poll.running ? '지금 도는 중' : poll.nextAt ? `다음 ${clockAt(poll.nextAt)}` : ''
+
+  out(`백엔드   실행 중  pid ${hello.pid}, ${shortSpan(now - hello.startedAt)}째, ${SOURCE_LABEL[hello.source] ?? hello.source}`)
+  out(`버전     ${hello.version}`)
+  out(`업데이트 ${updateLine(snapshot.update)}`)
+  out(`Orca     ${orca.connected ? '연결됨' : `연결 안 됨${orca.lastError ? ` (${orca.lastError})` : ''}, Claude 는 직접 조회`}`)
+  out(`조회     ${shortSpan(poll.intervalMs)} 주기, ${lastPoll}, ${next}`)
+  out(`계정     Claude ${count('claude')}, Codex ${count('codex')}${hidden ? `, 숨김 ${hidden}` : ''}`)
+  out(`정책     자동 전환 ${onOff(policy.autoSwitch)}, 창 미리 열기 ${onOff(policy.keepAlive)}, 알림 ${onOff(policy.notifications)}`)
+  const recent = log.filter((entry) => NOTABLE.has(entry.kind)).slice(0, 3)
+  recent.forEach((entry, index) => {
+    const who = entry.email ? `${entry.email.split('@')[0]}  ` : ''
+    out(`${index ? '        ' : '최근    '} ${clockAt(entry.at, { withDate: now - entry.at > 12 * 3_600_000 })}  ${who}${entry.text}`)
+  })
+  if (launchd.registered) {
+    out(`launchd  등록됨  ${tilde(PLIST_PATH)}`)
+  } else {
+    out('launchd  등록 안 됨. 따로 띄운 백엔드라 재부팅하면 사라집니다.  orca-usage daemon install')
+  }
+  out(`로그     ${tilde(DAEMON_LOG)}`)
+}
+
+// ---- accounts -----------------------------------------------------------
+
+/** 백엔드가 첫 조회를 마칠 때까지 기다린다. 막 띄운 백엔드는 캐시 값만 들고 있다. */
+async function waitForFirstPoll(timeoutMs = 30_000) {
+  const connection = await connect()
+  try {
+    const first = await connection.request('subscribe')
+    if (first.poll.lastAt) return first
+    return await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), timeoutMs)
+      connection.on('state', (state) => {
+        if (!state.poll.lastAt) return
+        clearTimeout(timer)
+        resolve(state)
+      })
+    })
+  } finally {
+    connection.close()
+  }
+}
+
+async function accountsCommand({ json = false } = {}) {
+  const { hello } = await ensureBackend()
+  if (!hello) return fail('백엔드를 띄우지 못했습니다. orca-usage daemon logs 로 이유를 봅니다')
+  const snapshot = (await waitForFirstPoll()) ?? await call('snapshot')
+  if (json) {
+    out(JSON.stringify(snapshot.accounts, null, 2))
+    return
+  }
+  for (const row of snapshot.accounts) {
+    const windows = (row.usage?.windows ?? [])
+      .map((window) => `${window.label} ${Math.round(window.pct)}%`)
+      .join('  ')
+    const label = row.label ? ` [${row.label}]` : ''
+    const tags = [row.hidden ? '숨김' : null, row.note].filter(Boolean).join(', ')
+    out(`${row.index}${row.active ? ' *' : '  '} ${row.email}${label}  ${windows}${tags ? `  (${tags})` : ''}`)
+  }
+}
+
+// ---- daemon -------------------------------------------------------------
+
+async function installDaemon() {
+  if (installMode() === 'bunx') {
+    // bunx 캐시는 커밋마다 폴더 이름이 바뀌어 launchd 에 물리면 다음 업데이트에서
+    // 사라진다. 경로가 그대로인 자리에 먼저 깔고 그쪽에서 다시 부른다.
+    const slug = repoSlug() ?? 'kimjisub/orca-usage'
+    out('bunx 캐시에서 불렸습니다. 업데이트해도 경로가 그대로인 자리에 먼저 설치합니다.')
+    out(`  bun add -g github:${slug}`)
+    const added = spawnSync(process.execPath, ['add', '-g', `github:${slug}`], { stdio: 'inherit' })
+    if (added.status !== 0) return fail('설치하지 못했습니다')
+    const bunHome = process.env.BUN_INSTALL ?? path.join(os.homedir(), '.bun')
+    const globalCli = path.join(bunHome, 'install/global/node_modules/orca-usage/src/cli.jsx')
+    const next = spawnSync(process.execPath, [globalCli, 'daemon', 'install'], { stdio: 'inherit' })
+    process.exitCode = next.status ?? 1
     return
   }
 
+  // 화면이나 손으로 띄운 백엔드가 pid 를 쥐고 있으면 launchd 가 띄운 쪽이
+  // "이미 떠 있음" 으로 물러난다. 먼저 내린다.
+  const hello = await answers()
+  if (hello && hello.source !== 'launchd') {
+    out(`따로 떠 있던 백엔드(pid ${hello.pid})를 내립니다`)
+    await call('shutdown')
+    await waitForGone()
+  }
+  await register()
+  out(`launchd 에 등록했습니다: ${tilde(PLIST_PATH)}`)
+  const up = await waitForBackend(20_000, { unless: (next) => next.source !== 'launchd' })
+  if (!up) return fail('등록은 했지만 백엔드가 답하지 않습니다. orca-usage daemon logs 로 이유를 봅니다')
+  out()
+  await statusCommand()
+}
+
+async function uninstallDaemon() {
+  const launchd = await inspect()
+  if (launchd.registered) {
+    await unregister()
+    out('launchd 에서 내리고 등록을 지웠습니다')
+  } else {
+    out('launchd 에 등록돼 있지 않습니다')
+  }
+  const hello = await answers()
+  if (hello) {
+    await call('shutdown')
+    await waitForGone()
+    out(`따로 떠 있던 백엔드(pid ${hello.pid})도 내렸습니다`)
+  }
+  out(`상태와 기록은 남겨 둡니다: ${tilde(STATE_DIR)}, ${tilde(LOG_DIR)}`)
+}
+
+async function restartDaemon() {
+  const [launchd, before] = await Promise.all([inspect(), answers()])
+  if (launchd.registered) {
+    await kickstart()
+  } else {
+    if (before) {
+      await call('shutdown')
+      await waitForGone()
+    }
+    spawnDetached()
+  }
+  const after = await waitForBackend(20_000, { unless: (next) => Boolean(before) && next.pid === before.pid })
+  if (!after) return fail('다시 뜨지 않았습니다. orca-usage daemon logs 로 이유를 봅니다')
+  out(`다시 떴습니다: pid ${after.pid}, ${after.version}, ${SOURCE_LABEL[after.source] ?? after.source}`)
+}
+
+async function stopDaemon() {
+  const hello = await answers()
+  if (!hello) return out('백엔드가 떠 있지 않습니다')
+  await call('shutdown')
+  await waitForGone()
+  out(`내렸습니다 (pid ${hello.pid})`)
+  if ((await inspect()).registered) {
+    out('launchd 등록은 남아 있어 다음 로그인 때 다시 뜹니다. 완전히 멈추려면 orca-usage daemon uninstall')
+  }
+}
+
+function showLogs(follow) {
+  if (!fs.existsSync(DAEMON_LOG)) return out(`아직 로그가 없습니다: ${tilde(DAEMON_LOG)}`)
+  const tail = spawn('tail', ['-n', '80', ...(follow ? ['-f'] : []), DAEMON_LOG], { stdio: 'inherit' })
+  return new Promise((resolve) => tail.on('exit', resolve))
+}
+
+async function daemonCommand(sub, flags) {
+  if (sub === 'run') {
+    const { runDaemon } = await import('./daemon/run.js')
+    return runDaemon()
+  }
+  if (sub === 'install') return installDaemon()
+  if (sub === 'uninstall') return uninstallDaemon()
+  if (sub === 'restart') return restartDaemon()
+  if (sub === 'stop') return stopDaemon()
+  if (sub === 'logs') return showLogs(flags.has('-f') || flags.has('--follow'))
+  return fail('orca-usage daemon install | uninstall | restart | stop | logs [-f] | run', 2)
+}
+
+// ---- update -------------------------------------------------------------
+
+async function updateCommand() {
+  const hello = await answers()
+  if (!hello) {
+    // 받을 백엔드가 없다. 이 프로세스가 직접 받는다.
+    const updater = createUpdater()
+    const info = await updater.check()
+    if (!info.available) {
+      return info.error ? fail(`업데이트를 확인하지 못했습니다: ${info.error}`) : out(`이미 최신입니다 (${info.installed})`)
+    }
+    out(`받는 중: ${info.installed} -> ${info.latest}`)
+    const result = await updater.apply()
+    return out(`${result.from} -> ${result.to}`)
+  }
+
+  // 받는 것도 다시 뜨는 것도 백엔드가 한다. 여기서는 요청하고 기다린다.
+  out('업데이트를 확인하는 중...')
+  const info = await call('checkUpdate', {}, { timeoutMs: 60_000 })
+  if (!info?.available) {
+    return info?.error ? fail(`업데이트를 확인하지 못했습니다: ${info.error}`) : out(`이미 최신입니다 (${info?.installed ?? hello.version})`)
+  }
+  out(`받는 중: ${info.installed} -> ${info.latest}`)
+  const result = await call('update', {}, { timeoutMs: 300_000 })
+  if (!result.changed) return out('받을 것이 없었습니다')
+  const after = await waitForBackend(60_000, { unless: (next) => next.pid === hello.pid })
+  if (!after) return fail('받았지만 새 백엔드가 답하지 않습니다. orca-usage daemon logs 로 이유를 봅니다')
+  out(`${result.from} -> ${result.to}. 백엔드가 새 코드로 떴습니다 (pid ${after.pid})`)
+}
+
+// ---- 화면 ---------------------------------------------------------------
+
+async function screen(graphStyle) {
+  const React = (await import('react')).default
+  const { render } = await import('ink')
+  const { App } = await import('./ui/App.jsx')
   const app = render(
-    <App intervalMs={options.intervalMs} allowRefresh={options.allowRefresh} graphStyle={options.graphStyle} />,
+    <App intervalMs={120_000} allowRefresh graphStyle={graphStyle} />,
     // Ctrl+C 는 우리가 받는다. ink 에 맡기면 한 번에 끝나 실수로 누른 것과
     // 끄려는 것이 구분되지 않는다.
     { exitOnCtrlC: false },
   )
   await app.waitUntilExit()
+}
+
+async function main() {
+  // status | head 처럼 읽는 쪽이 먼저 닫으면 쓰기가 EPIPE 로 죽는다. 읽을 사람이
+  // 없으니 조용히 끝낸다.
+  process.stdout.on('error', (error) => {
+    if (error.code === 'EPIPE') process.exit(0)
+  })
+  const { flags, words, graphStyle } = parseArgs(process.argv.slice(2))
+  const [command, sub] = words
+  if (flags.has('--help') || flags.has('-h') || command === 'help') return out(HELP)
+  if (command === 'daemon') return daemonCommand(sub, flags)
+  if (command === 'status') return statusCommand({ json: flags.has('--json') })
+  if (command === 'update') return updateCommand()
+  if (command === 'accounts' || flags.has('--once') || flags.has('--json')) {
+    return accountsCommand({ json: flags.has('--json') })
+  }
+  if (command) return fail(`모르는 명령입니다: ${command}. orca-usage --help`, 2)
+  // 파이프로 돌리면 대화형 화면이 의미가 없다. 한 번 찍고 끝낸다.
+  if (!process.stdin.isTTY) return accountsCommand()
+  return screen(graphStyle)
 }
 
 main().catch((error) => {
