@@ -1,7 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { buildSchedule } from '../schedule.js'
-import { clockAt } from '../format.js'
+import { buildSchedule } from '../core/schedule.js'
+import { clockAt } from '../core/format.js'
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 const HOUR_AXIS = '0  2  4  6  8 10 12 14 16 18 20 22'

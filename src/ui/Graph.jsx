@@ -1,9 +1,9 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { chartSeries, colorForSeries, keysForMode, overviewSeries } from '../chart.js'
-import { shortSpan } from '../format.js'
+import { chartSeries, colorForSeries, keysForMode, overviewSeries } from './chart.js'
+import { shortSpan } from '../core/format.js'
 import { AXIS_WIDTH, Chart } from './Chart.jsx'
-import { DOTS_PER_CELL_X } from '../braille.js'
+import { DOTS_PER_CELL_X } from './braille.js'
 
 const DOT = '●'
 

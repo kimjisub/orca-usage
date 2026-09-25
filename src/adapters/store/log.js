@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { STATE_DIR } from './paths.js'
+import { STATE_DIR } from '../../paths.js'
 import { writeJsonAtomic } from './store.js'
-import { tuning } from './tuning.js'
+import { tuning } from '../../core/tuning.js'
 
 const LOG_PATH = path.join(STATE_DIR, 'log.json')
 

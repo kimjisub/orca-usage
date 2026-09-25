@@ -1,6 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { cellWidth } from '../format.js'
+import { cellWidth } from '../core/format.js'
 
 // 한 줄에 제목과 설명. 제목 폭을 맞춰 세로가 줄로 읽힌다. 한글은 두 칸이라
 // padEnd 로는 안 맞는다.

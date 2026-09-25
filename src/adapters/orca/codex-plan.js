@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { ORCA_CODEX_ACCOUNTS } from './paths.js'
+import { ORCA_CODEX_ACCOUNTS } from '../../paths.js'
 
 /**
  * Codex 계정의 요금제.

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { BACKUP_DIR, KEYCHAIN_SERVICE, LOCK_PATH, SECURITY, STATE_DIR } from './paths.js'
+import { BACKUP_DIR, KEYCHAIN_SERVICE, LOCK_PATH, SECURITY, STATE_DIR } from '../../paths.js'
 
 const run = promisify(execFile)
 

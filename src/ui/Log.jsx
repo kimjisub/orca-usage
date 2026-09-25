@@ -1,6 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { clockAt } from '../format.js'
+import { clockAt } from '../core/format.js'
 
 // 종류마다 이름과 색. 이름은 넉 자로 맞춰 세로가 줄로 읽힌다.
 const KIND = {

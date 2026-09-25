@@ -1,6 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { aggregateWindows } from '../format.js'
+import { aggregateWindows } from '../core/format.js'
 import { Bar } from './Bar.jsx'
 
 /**

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { CACHE_PATH, HISTORY_PATH, STATE_DIR } from './paths.js'
+import { CACHE_PATH, HISTORY_PATH, STATE_DIR } from '../../paths.js'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE

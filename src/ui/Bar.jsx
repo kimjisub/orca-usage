@@ -1,6 +1,6 @@
 import React from 'react'
 import { Text } from 'ink'
-import { elapsedRatio, msUntil, shadeFor, shortSpan } from '../format.js'
+import { elapsedRatio, msUntil, shadeFor, shortSpan } from '../core/format.js'
 
 const TRACK = '━'
 const MARKER = '│'

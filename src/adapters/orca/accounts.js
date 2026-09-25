@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fetchCodex } from './orca-limits.js'
-import { HOME, ORCA_ACCOUNTS } from './paths.js'
+import { HOME, ORCA_ACCOUNTS } from '../../paths.js'
 
 /** 지금 Claude Code 가 붙어 있는 계정. ~/.claude.json 만 읽는다. */
 function activeAccountUuid() {

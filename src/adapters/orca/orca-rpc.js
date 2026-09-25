@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { HOME } from './paths.js'
+import { HOME } from '../../paths.js'
 
 const METADATA_PATH = path.join(HOME, 'Library/Application Support/orca/orca-runtime.json')
 const TIMEOUT_MS = 10_000

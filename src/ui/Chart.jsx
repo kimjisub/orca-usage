@@ -1,9 +1,9 @@
 import React from 'react'
 import { Text } from 'ink'
-import { areaGrid } from '../area.js'
-import { brailleGrid } from '../braille.js'
-import { lineGrid } from '../line.js'
-import { clockAt } from '../format.js'
+import { areaGrid } from './area.js'
+import { brailleGrid } from './braille.js'
+import { lineGrid } from './line.js'
+import { clockAt } from '../core/format.js'
 
 const TICK_WIDTH = 4
 // 한 줄의 왼쪽은 눈금 네 자리와 공백, 축 문자가 차지한다. 나머지가 데이터 폭이다.

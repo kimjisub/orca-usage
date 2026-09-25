@@ -1,7 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { cellWidth } from '../format.js'
-import { colorForSeries } from '../chart.js'
+import { cellWidth } from '../core/format.js'
+import { colorForSeries } from './chart.js'
 
 const NAME_WIDTH = 13
 const LABEL_WIDTH = 7

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { RANGES } from './chart.js'
-import { STATE_DIR } from './paths.js'
+import { RANGES } from '../../ui/chart.js'
+import { STATE_DIR } from '../../paths.js'
 import { writeJsonAtomic } from './store.js'
 
 const SETTINGS_PATH = path.join(STATE_DIR, 'settings.json')

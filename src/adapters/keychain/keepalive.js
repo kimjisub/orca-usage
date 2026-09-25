@@ -1,5 +1,5 @@
 import { CredentialError } from './credentials.js'
-import { msUntil } from './format.js'
+import { msUntil } from '../../core/format.js'
 import { ensureToken } from './oauth.js'
 
 const MESSAGES_URL = 'https://api.anthropic.com/v1/messages'

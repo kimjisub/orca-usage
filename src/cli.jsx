@@ -1,7 +1,7 @@
 import React from 'react'
 import { render } from 'ink'
-import { collectAllAccounts } from './accounts.js'
-import { pollOnce, rowsFromCache } from './poller.js'
+import { collectAllAccounts } from './adapters/orca/accounts.js'
+import { pollOnce, rowsFromCache } from './engine/poller.js'
 import { App } from './ui/App.jsx'
 
 function parseArgs(argv) {

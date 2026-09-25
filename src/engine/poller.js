@@ -1,7 +1,7 @@
-import { CredentialError } from './credentials.js'
-import { REFRESH_MIN_GAP_MS, ensureToken, fetchUsage, normalize } from './oauth.js'
-import { fetchOrcaLimits } from './orca-limits.js'
-import { appendHistory, loadCache, loadHistory, saveCache, saveHistory } from './store.js'
+import { CredentialError } from '../adapters/keychain/credentials.js'
+import { REFRESH_MIN_GAP_MS, ensureToken, fetchUsage, normalize } from '../adapters/keychain/oauth.js'
+import { fetchOrcaLimits } from '../adapters/orca/orca-limits.js'
+import { appendHistory, loadCache, loadHistory, saveCache, saveHistory } from '../adapters/store/store.js'
 
 // 429 는 Retry-After: 0 으로 오는 일이 잦다. 그대로 믿으면 쉬지 않고 다시 때린다.
 // 연속으로 막히면 배로 늘려 예산을 그만 태운다.

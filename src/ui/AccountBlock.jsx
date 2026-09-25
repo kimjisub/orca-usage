@@ -1,7 +1,7 @@
 import React from 'react'
 import { Text } from 'ink'
-import { colorForSeries } from '../chart.js'
-import { shortSpan } from '../format.js'
+import { colorForSeries } from './chart.js'
+import { shortSpan } from '../core/format.js'
 import { Bar } from './Bar.jsx'
 
 export const ACTIVE_MARK = '*'

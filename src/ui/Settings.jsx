@@ -1,7 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { cellWidth } from '../format.js'
-import { TUNABLES, TUNING_DEFAULTS, formatTuning } from '../tuning.js'
+import { cellWidth } from '../core/format.js'
+import { TUNABLES, TUNING_DEFAULTS, formatTuning } from '../core/tuning.js'
 
 // 한글은 두 칸이라 padEnd 로는 자리가 안 맞는다.
 const LABEL_WIDTH = 15
