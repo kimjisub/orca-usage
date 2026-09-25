@@ -7,6 +7,8 @@ export const ORCA_ACCOUNTS = path.join(
   HOME, 'Library/Application Support/orca/claude-accounts')
 export const ORCA_CODEX_ACCOUNTS = path.join(
   HOME, 'Library/Application Support/orca/codex-accounts')
+// Codex 가 시스템 기본 로그인을 두는 곳. Codex 처럼 CODEX_HOME 을 따른다.
+export const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex')
 export const KEYCHAIN_SERVICE = 'Orca Claude Code Managed Credentials'
 export const SECURITY = '/usr/bin/security'
 

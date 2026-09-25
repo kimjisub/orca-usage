@@ -1,9 +1,15 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { ORCA_CODEX_ACCOUNTS } from '../../paths.js'
+import { CODEX_HOME, ORCA_CODEX_ACCOUNTS } from '../../paths.js'
 
 /**
- * Codex 계정의 요금제.
+ * Codex 계정의 auth.json 에서 읽는 것: 요금제와 토큰의 만료, 마지막 갱신.
+ *
+ * Orca 가 관리하는 계정은 Orca 가 계정마다 두는 home 아래에, 시스템 기본
+ * 로그인은 Codex 자신의 home(~/.codex) 아래에 있다. 토큰 값은 읽고 버리며
+ * 어디에도 남기지 않는다.
+ *
+ * 요금제에 대해.
  *
  * Orca 가 계정 목록에 실어 주는 것은 `workspaceLabel` 뿐이고 그마저 비어 올
  * 때가 있다. 실측 2026-09-21: 두 계정 중 하나만 "Personal (Pro)" 였고 다른
@@ -62,19 +68,55 @@ function fromWorkspace(workspaceLabel) {
   return found ? found[1].trim() : ''
 }
 
+/** Orca 가 관리하는 계정이면 그 계정의 home, id 가 없으면 시스템 기본 로그인. */
+const authFileFor = (accountId) => (accountId
+  ? path.join(ORCA_CODEX_ACCOUNTS, accountId, 'home/auth.json')
+  : path.join(CODEX_HOME, 'auth.json'))
+
+/**
+ * auth.json 하나를 읽는다. 못 읽으면 null.
+ *
+ * 만료는 access_token 의 exp 다. id_token 은 갱신한 뒤 한 시간이면 만료돼
+ * 토큰이 살아 있는지와 상관이 없다(실측 2026-09-25: access_token 은 238시간
+ * 남았는데 id_token 은 이미 만료). last_refresh 는 Codex 나 Orca 가 마지막으로
+ * 토큰을 갱신한 시각이다.
+ *
+ * @returns {{planType: string|null, expiresAt: number|null, refreshedAt: number|null}|null}
+ */
+export function readCodexAuth(file) {
+  let auth
+  try {
+    auth = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch {
+    return null
+  }
+  const identity = payloadOf(auth?.tokens?.id_token)
+  const access = payloadOf(auth?.tokens?.access_token)
+  const refreshedAt = Date.parse(auth?.last_refresh ?? '')
+  return {
+    planType: identity?.['https://api.openai.com/auth']?.chatgpt_plan_type ?? null,
+    expiresAt: typeof access?.exp === 'number' ? access.exp * 1000 : null,
+    refreshedAt: Number.isFinite(refreshedAt) ? refreshedAt : null,
+  }
+}
+
 /**
  * 계정 하나의 요금제 이름. 못 알아내면 빈 문자열이다.
  *
- * @param {string} accountId Orca 의 계정 id
+ * @param {string|null} accountId Orca 의 계정 id. null 이면 시스템 기본 로그인
  * @param {string|null} workspaceLabel Orca 가 목록에 실어 준 값
  */
 export function codexPlanLabel(accountId, workspaceLabel = null) {
-  try {
-    const file = path.join(ORCA_CODEX_ACCOUNTS, accountId, 'home/auth.json')
-    const auth = JSON.parse(fs.readFileSync(file, 'utf8'))
-    const claims = payloadOf(auth?.tokens?.id_token)
-    const label = labelFor(claims?.['https://api.openai.com/auth']?.chatgpt_plan_type)
-    if (label) return label
-  } catch { /* 파일이 없거나 모양이 바뀌었다. 아래로 내려간다 */ }
-  return fromWorkspace(workspaceLabel)
+  const label = labelFor(readCodexAuth(authFileFor(accountId))?.planType)
+  return label || fromWorkspace(workspaceLabel)
+}
+
+/**
+ * 계정 하나의 토큰 만료와 마지막 갱신. 못 읽으면 null.
+ *
+ * @param {string|null} accountId Orca 의 계정 id. null 이면 시스템 기본 로그인
+ */
+export function codexTokenInfo(accountId) {
+  const auth = readCodexAuth(authFileFor(accountId))
+  return auth ? { expiresAt: auth.expiresAt, refreshedAt: auth.refreshedAt } : null
 }

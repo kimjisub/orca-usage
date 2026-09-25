@@ -1,5 +1,6 @@
 import { call } from './orca-rpc.js'
-import { codexPlanLabel } from './codex-plan.js'
+import { codexPlanLabel } from './codex-auth.js'
+import { codexActiveId, systemCodexAccount } from './system-codex.js'
 
 /**
  * 계정과 사용량을 Orca 에서 받는다.
@@ -103,14 +104,17 @@ function entryOf(rateLimits) {
   }
 }
 
-/** provider 하나의 계정 id 별 한도. 활성 계정은 목록이 아니라 위쪽에 따로 실려 온다. */
+/**
+ * provider 하나의 계정 id 별 한도. 활성 계정은 목록이 아니라 위쪽에 따로 실려
+ * 온다. Codex 가 시스템 기본 로그인으로 돌고 있으면 그 한도는 시스템 기본의 것이다.
+ */
 function limitsById(payload, provider) {
   const byId = new Map()
   const inactiveKey = provider === 'claude' ? 'inactiveClaudeAccounts' : 'inactiveCodexAccounts'
   for (const entry of payload?.rateLimits?.[inactiveKey] ?? []) {
     if (entry?.accountId) byId.set(entry.accountId, entry.rateLimits)
   }
-  const activeId = payload?.[provider]?.activeAccountId
+  const activeId = provider === 'codex' ? codexActiveId(payload) : payload?.[provider]?.activeAccountId
   if (activeId && payload?.rateLimits?.[provider]) byId.set(activeId, payload.rateLimits[provider])
   return byId
 }
@@ -140,10 +144,22 @@ export async function fetchOrcaLimits({ refreshUsage = false } = {}) {
     label: codexPlanLabel(account.id, account.workspaceLabel),
     ...(codexById.get(account.id) ?? entryOf(null)),
   }))
+  // 시스템 기본 로그인은 목록 끝에 선다. 쓰고 있지 않을 때는 사용량이 안 와서
+  // 마지막으로 받은 값이 캐시에서 보인다.
+  const system = systemCodexAccount(payload)
+  if (system) {
+    const plan = codexPlanLabel(null)
+    codexAccounts.push({
+      ...system,
+      provider: 'codex',
+      label: plan ? `${plan}, 시스템 기본` : '시스템 기본',
+      ...(codexById.get(system.id) ?? entryOf(null)),
+    })
+  }
 
   return {
     claude: { activeId: payload?.claude?.activeAccountId ?? null, byId: claudeById },
-    codex: { activeId: payload?.codex?.activeAccountId ?? null, byId: codexById, accounts: codexAccounts },
+    codex: { activeId: codexActiveId(payload), byId: codexById, accounts: codexAccounts },
   }
 }
 

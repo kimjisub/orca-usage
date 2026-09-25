@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { HOME } from '../../paths.js'
+import { codexActiveId } from './system-codex.js'
 
 const METADATA_PATH = path.join(HOME, 'Library/Application Support/orca/orca-runtime.json')
 const TIMEOUT_MS = 10_000
@@ -88,7 +89,7 @@ export function call(method, params = {}) {
  * 지금 Orca 가 붙어 있는 계정 id. provider 마다 따로다.
  *
  * Codex 는 계정을 안 고른 채로도 돈다. 그때 activeAccountId 는 null 이고
- * systemDefault 가 쓰인다.
+ * 시스템 기본 로그인이 쓰이므로, 그 로그인의 행 id 를 돌려준다(system-codex.js).
  *
  * @returns {Promise<{claude: string|null, codex: string|null}>}
  */
@@ -96,7 +97,7 @@ export async function activeAccountIds() {
   const result = await call('accounts.list', { refreshUsage: false })
   return {
     claude: result?.claude?.activeAccountId ?? null,
-    codex: result?.codex?.activeAccountId ?? null,
+    codex: codexActiveId(result),
   }
 }
 
