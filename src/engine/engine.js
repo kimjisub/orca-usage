@@ -480,7 +480,7 @@ export class Engine extends EventEmitter {
     const entries = Object.entries(patch ?? {})
     for (const [key, value] of entries) {
       if (!POLICY_SWITCHES.includes(key)) throw new Error(`모르는 정책입니다: ${key}`)
-      if (typeof value !== 'boolean') throw new Error(`${key} 는 켜기나 끄기만 받습니다`)
+      if (typeof value !== 'boolean') throw new Error(`${key}: 켜기나 끄기만 받습니다`)
     }
     for (const [key, value] of entries) this.policy[key] = value
     this.savePolicy()
@@ -493,9 +493,9 @@ export class Engine extends EventEmitter {
   setTuning(key, value) {
     const item = TUNABLES.find((entry) => entry.key === key)
     if (!item) throw new Error(`모르는 설정입니다: ${key}`)
-    if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${item.label} 에는 숫자를 넣습니다`)
+    if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${item.label}: 숫자만 됩니다`)
     if (value < item.min || value > item.max) {
-      throw new Error(`${item.label} 은 ${formatTuning(item, item.min)}~${formatTuning(item, item.max)} 사이입니다`)
+      throw new Error(`${item.label}: ${formatTuning(item, item.min)}~${formatTuning(item, item.max)} 사이만 됩니다`)
     }
     this.policy.tuning = { ...this.policy.tuning, [key]: value }
     return this.afterTuning(key)

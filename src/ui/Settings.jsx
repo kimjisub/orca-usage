@@ -20,9 +20,24 @@ const padStart = (text, width) => ' '.repeat(Math.max(0, width - cellWidth(text)
 // 것만 아래에 따로 적는다. 줄마다 잘린 문장이 늘어서면 아무것도 안 읽힌다.
 const HINT_WIDTH = LABEL_WIDTH + VALUE_WIDTH + 26
 
-export function Settings({ values, selected, editing = false, height, columns }) {
+/**
+ * 설정 화면의 줄. 판단 기준 뒤에 켜고 끄는 정책이 온다. 켜고 끄는 줄은 좌우로
+ * 뒤집고 0 으로 기본값(켜짐)에 돌린다.
+ */
+export const SETTINGS_ROWS = [
+  ...TUNABLES,
+  {
+    key: 'notifications',
+    label: '알림',
+    toggle: true,
+    fallback: true,
+    hint: '계정 전환과 재로그인 필요를 macOS 알림으로 띄운다',
+  },
+]
+
+export function Settings({ values, policy, selected, editing = false, height, columns }) {
   const inlineHint = columns >= HINT_WIDTH
-  const shown = TUNABLES.slice(0, Math.max(1, height - 2))
+  const shown = SETTINGS_ROWS.slice(0, Math.max(1, height - 2))
   return (
     <Box flexDirection="column">
       <Text wrap="truncate">
@@ -34,8 +49,9 @@ export function Settings({ values, selected, editing = false, height, columns })
       </Text>
       {shown.map((item, index) => {
         const on = index === selected
-        const value = values[item.key]
-        const changed = value !== TUNING_DEFAULTS[item.key]
+        const value = item.toggle ? policy?.[item.key] : values[item.key]
+        const changed = item.toggle ? value !== item.fallback : value !== TUNING_DEFAULTS[item.key]
+        const shownValue = item.toggle ? (value ? '켜짐' : '꺼짐') : formatTuning(item, value)
         return (
           <Text key={item.key} wrap="truncate">
             <Text color={on && editing ? 'yellow' : 'cyan'} bold>{on ? '> ' : '  '}</Text>
@@ -43,7 +59,7 @@ export function Settings({ values, selected, editing = false, height, columns })
             {/* 기본값에서 바뀐 것은 색으로 표시한다. 무엇을 건드렸는지 한눈에 보인다.
                 고치는 중인 값은 뒤집어 어느 것이 움직이는지 가린다. */}
             <Text color={changed ? 'yellow' : 'white'} bold inverse={on && editing}>
-              {padStart(formatTuning(item, value), VALUE_WIDTH)}
+              {padStart(shownValue, VALUE_WIDTH)}
             </Text>
             {inlineHint ? <Text color="gray">{`  ${item.hint}`}</Text> : null}
           </Text>
@@ -51,7 +67,7 @@ export function Settings({ values, selected, editing = false, height, columns })
       })}
       {inlineHint
         ? null
-        : <Text color="gray" wrap="truncate">{`  ${TUNABLES[selected]?.hint ?? ''}`}</Text>}
+        : <Text color="gray" wrap="truncate">{`  ${SETTINGS_ROWS[selected]?.hint ?? ''}`}</Text>}
       <Text color="gray" wrap="truncate">
         {editing ? '  0 을 누르면 기본값으로 돌아갑니다. Enter 나 Esc 로 끝냅니다' : '  좌우 화살표는 패널을 옮깁니다'}
       </Text>

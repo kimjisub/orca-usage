@@ -122,7 +122,7 @@ describe('요청', () => {
   test('범위 밖 판단 기준은 거절하고 범위 안은 저장한다', async () => {
     const { engine, state } = setup({ accounts: [claudeAccount('a', 1)] })
     await engine.start({ schedule: false })
-    expect(() => engine.setTuning('switchAt', 200)).toThrow('사이입니다')
+    expect(() => engine.setTuning('switchAt', 200)).toThrow('사이만 됩니다')
     engine.setTuning('switchAt', 70)
     expect(state.policy.tuning.switchAt).toBe(70)
     engine.resetTuning('switchAt')

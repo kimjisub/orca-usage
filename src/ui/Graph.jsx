@@ -217,14 +217,13 @@ export const AUTO_BLOCK_ROWS = 1
  * 알려주는 안내문이라 자리만 먹었다. 무엇이 켜져 있고 마지막 조회가 언제인지만
  * 남긴다. 무슨 일이 있었는지는 기록 탭이 훨씬 자세히 보여준다.
  */
-export function AutoBlock({ rows, keepAlive, autoSwitch, failures, now }) {
-  const fetchedAt = Math.max(0, ...rows.map((row) => row.fetchedAt ?? 0))
-  const viaOrca = rows.every((row) => row.source === 'orca')
+export function AutoBlock({ poll, orcaConnected, keepAlive, autoSwitch, failures, now }) {
+  const lastAt = poll?.lastAt ?? 0
   return (
     <Text wrap="truncate">
       <Text color="gray">{'자동  '}</Text>
       <Text color="white">
-        {fetchedAt ? `조회 ${shortSpan(now - fetchedAt)} 전${viaOrca ? ', Orca' : ''}` : '조회 대기'}
+        {lastAt ? `조회 ${shortSpan(now - lastAt)} 전${orcaConnected ? ', Orca' : ', 직접'}` : '조회 대기'}
       </Text>
       <Text color={keepAlive ? 'green' : 'gray'}>{`  사이클 ${keepAlive ? '켜짐' : '꺼짐'}`}</Text>
       <Text color={autoSwitch ? 'green' : 'gray'}>{`  전환 ${autoSwitch ? '켜짐' : '꺼짐'}`}</Text>

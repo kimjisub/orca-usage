@@ -295,13 +295,19 @@ async function screen(graphStyle) {
   const React = (await import('react')).default
   const { render } = await import('ink')
   const { App } = await import('./ui/App.jsx')
+  let restart = false
   const app = render(
-    <App intervalMs={120_000} allowRefresh graphStyle={graphStyle} />,
+    <App graphStyle={graphStyle} onRestart={() => { restart = true }} />,
     // Ctrl+C 는 우리가 받는다. ink 에 맡기면 한 번에 끝나 실수로 누른 것과
     // 끄려는 것이 구분되지 않는다.
     { exitOnCtrlC: false },
   )
   await app.waitUntilExit()
+  if (!restart) return
+  // 업데이트로 백엔드가 새 코드로 떴다. 화면도 같은 명령을 다시 띄워 새 코드로
+  // 돌린다. 이 프로세스는 옛 코드를 메모리에 들고 있어 제자리에서 바뀌지 않는다.
+  const next = spawnSync(process.execPath, process.argv.slice(1), { stdio: 'inherit' })
+  process.exitCode = next.status ?? 0
 }
 
 async function main() {
