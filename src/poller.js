@@ -52,19 +52,29 @@ export async function pollOnce(accounts, {
 
     const got = orca?.[account.provider]?.byId.get(account.id) ?? null
     // Codex 는 직접 조회 경로가 없다. Orca 값이 없으면 캐시를 그대로 보여 준다.
-    // Claude 는 Orca 값이 있으면 옮겨 적고, 없으면 아래에서 직접 친다.
-    if (account.provider === 'codex' || got?.usage) {
+    // Claude 는 Orca 가 받아 냈으면 옮겨 적고, 아니면 아래에서 직접 친다. 실패한
+    // 응답에 실려 온 값으로는 직접 조회를 건너뛰지 않는다. 그쪽이 더 새 값을
+    // 가져올 수 있어서다.
+    if (account.provider === 'codex' || (got?.usage && !got.stale)) {
       if (got?.usage) {
         entry.usage = got.usage
-        entry.fetchedAt = got.fetchedAt ?? Date.now()
         if (account.provider === 'codex') entry.credits = got.credits ?? null
-        // Orca 가 받아 냈으면 그 계정의 토큰은 살아 있다.
-        delete entry.authFailed
-        delete entry.retryUntil
-        delete entry.blockedStreak
-        // 표본 시각은 Orca 가 받은 시각이다. 지금 시각으로 찍으면 Orca 가 갱신을
-        // 미룬 동안 같은 값이 새 표본처럼 쌓인다. 같은 시각이면 store 가 거른다.
-        appendHistory(history, account.id, got.usage.windows, entry.fetchedAt)
+        if (got.stale) {
+          // 조회가 실패한 응답에 함께 실려 온 지난 값이다. 화면에는 보이되
+          // 받은 시각은 그대로 둔다. 실패 시각으로 갱신하면 낡은 값이 방금 받은
+          // 것처럼 읽히고, 이력에 쌓으면 아무도 관측하지 않은 표본이 생긴다.
+          entry.fetchedAt = entry.fetchedAt ?? got.fetchedAt ?? null
+          if (got.authFailed) entry.authFailed = true
+        } else {
+          entry.fetchedAt = got.fetchedAt ?? Date.now()
+          // Orca 가 받아 냈으면 그 계정의 토큰은 살아 있다.
+          delete entry.authFailed
+          delete entry.retryUntil
+          delete entry.blockedStreak
+          // 표본 시각은 Orca 가 받은 시각이다. 지금 시각으로 찍으면 Orca 가 갱신을
+          // 미룬 동안 같은 값이 새 표본처럼 쌓인다. 같은 시각이면 store 가 거른다.
+          appendHistory(history, account.id, got.usage.windows, entry.fetchedAt)
+        }
       }
       cache[account.id] = entry
       const row = {
@@ -80,7 +90,7 @@ export async function pollOnce(accounts, {
         retryUntil: null,
         authFailed: Boolean(entry.authFailed),
         note: got?.note ?? null,
-        source: got?.usage ? 'orca' : (orca ? 'orca-miss' : 'cache'),
+        source: got?.usage && !got.stale ? 'orca' : (orca ? 'orca-miss' : 'cache'),
       }
       rows.push(row)
       onAccount(row)

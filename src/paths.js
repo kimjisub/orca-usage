@@ -4,6 +4,8 @@ import path from 'node:path'
 export const HOME = os.homedir()
 export const ORCA_ACCOUNTS = path.join(
   HOME, 'Library/Application Support/orca/claude-accounts')
+export const ORCA_CODEX_ACCOUNTS = path.join(
+  HOME, 'Library/Application Support/orca/codex-accounts')
 export const KEYCHAIN_SERVICE = 'Orca Claude Code Managed Credentials'
 export const SECURITY = '/usr/bin/security'
 

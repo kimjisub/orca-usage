@@ -1,4 +1,5 @@
 import { call } from './orca-rpc.js'
+import { codexPlanLabel } from './codex-plan.js'
 
 /**
  * 계정과 사용량을 Orca 에서 받는다.
@@ -61,14 +62,44 @@ function creditsOf(rateLimits) {
   return { available: credits.availableCount, nextExpiresAt: credits.nextExpiresAt ?? null }
 }
 
-/** 한 계정의 한도를 행이 쓰는 모양으로 옮긴다. 조회가 실패한 계정은 usage 가 비고 사유가 남는다. */
+/** 다시 로그인해야 풀리는 실패인가. 기다린다고 낫지 않으므로 이름 색으로 알린다. */
+const isAuthError = (error) => /token_revoked|invalidated oauth|401|unauthorized/i.test(String(error ?? ''))
+
+/**
+ * 실패 사유를 이름 옆에 들어갈 한 줄로 줄인다.
+ *
+ * Orca 가 주는 것은 주소와 헤더에 HTTP 응답 본문까지 담은 여러 줄짜리다.
+ * 그대로 실으면 계정 한 줄을 통째로 먹으면서 정작 무엇을 해야 하는지는 그
+ * 안에 묻힌다. 손쓸 방법이 갈리는 것만 따로 읽고 나머지는 첫 줄만 남긴다.
+ */
+function summarize(rateLimits) {
+  const text = String(rateLimits?.error ?? '')
+  if (!text) return rateLimits ? `Orca 조회 ${rateLimits.status}` : null
+  if (isAuthError(text)) return 'Orca 에서 재로그인'
+  if (/\b429\b|rate.?limit/i.test(text)) return '조회 한도 초과'
+  const first = text.split('\n')[0].trim()
+  return first.length > 60 ? `${first.slice(0, 57)}...` : first
+}
+
+/**
+ * 한 계정의 한도를 행이 쓰는 모양으로 옮긴다.
+ *
+ * 조회가 실패해도 Orca 는 마지막으로 받아 둔 창을 함께 준다. Orca 앱 화면이
+ * 그리는 값이 그것이라, 여기서 버리면 같은 계정을 두고 두 화면이 갈린다.
+ * 실측 2026-09-21: codex@teamcandid.kr 의 토큰이 revoke 되어 status 는 error
+ * 인데 weekly 는 2% 로 실려 왔고, Orca 화면에는 그 2% 가 보였다.
+ * 값은 쓰되 stale 로 표시해 부르는 쪽이 이력에 쌓을지 가릴 수 있게 한다.
+ */
 function entryOf(rateLimits) {
-  const ok = rateLimits && rateLimits.status === 'ok' && !rateLimits.error
+  const ok = Boolean(rateLimits) && rateLimits.status === 'ok' && !rateLimits.error
+  const windows = windowsOf(rateLimits)
   return {
-    usage: ok ? { windows: windowsOf(rateLimits) } : null,
+    usage: windows.length ? { windows } : null,
     credits: creditsOf(rateLimits),
     fetchedAt: rateLimits?.updatedAt ?? null,
-    note: ok ? null : (rateLimits?.error ?? (rateLimits ? `Orca 조회 ${rateLimits.status}` : null)),
+    stale: !ok,
+    authFailed: !ok && isAuthError(rateLimits?.error),
+    note: ok ? null : summarize(rateLimits),
   }
 }
 
@@ -104,8 +135,9 @@ export async function fetchOrcaLimits({ refreshUsage = false } = {}) {
     id: account.id,
     email: account.email ?? account.id.slice(0, 8),
     provider: 'codex',
-    // Codex 는 요금제를 알려 주지 않는다. 자리를 비워 두면 이름 뒤가 깔끔하다.
-    label: '',
+    // Claude 의 요금제 꼬리표와 같은 자리에 선다. 계정마다 한도가 갈리는데
+    // Codex 쪽만 비어 있으면 어느 것이 큰 계정인지 화면에서 알 수 없다.
+    label: codexPlanLabel(account.id, account.workspaceLabel),
     ...(codexById.get(account.id) ?? entryOf(null)),
   }))
 
