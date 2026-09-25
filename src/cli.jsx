@@ -212,7 +212,13 @@ const HELP = `orca-usage - Orca 가 관리하는 Claude 와 Codex 계정들의 �
 `
 
 async function main() {
-  const options = parseArgs(process.argv.slice(2))
+  const argv = process.argv.slice(2)
+  if (argv[0] === 'daemon' && argv[1] === 'run') {
+    const { runDaemon } = await import('./daemon/run.js')
+    await runDaemon()
+    return
+  }
+  const options = parseArgs(argv)
   if (options.help) {
     process.stdout.write(HELP)
     return
