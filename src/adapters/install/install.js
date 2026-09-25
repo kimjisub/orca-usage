@@ -13,8 +13,10 @@ import { PACKAGE_ROOT } from '../../paths.js'
  */
 export function installMode(root = PACKAGE_ROOT) {
   const posix = root.split(path.sep).join('/')
-  if (posix.includes('/.bun/install/cache/')) return 'bunx'
-  if (posix.includes('/.bun/install/global/node_modules/')) return 'global'
+  // Bun 의 설치 폴더는 BUN_INSTALL 로 옮길 수 있다(기본은 ~/.bun). 그 아래의
+  // 모양으로 가른다. ~/.bun 을 문자열로 찾으면 옮겨 둔 사람의 설치를 모른다.
+  if (posix.includes('/install/cache/')) return 'bunx'
+  if (posix.includes('/install/global/node_modules/')) return 'global'
   if (fs.existsSync(path.join(root, '.git'))) return 'clone'
   return 'other'
 }

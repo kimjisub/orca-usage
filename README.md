@@ -55,6 +55,8 @@ orca-usage             # the screen
 
 The first time the backend reads the keychain, macOS may ask whether `security` may use the Orca items. Choose "Always Allow"; the backend runs without a terminal and cannot answer later prompts.
 
+macOS also announces the new login item as coming from "Jarred Sumner". That is the developer certificate bun is signed with (he created Bun), and bun is what the launchd agent runs; it is this backend, not a third party. It is listed under System Settings > General > Login Items & Extensions, where turning it off keeps the backend from starting at login.
+
 ### From a clone
 
 To read or change the source:

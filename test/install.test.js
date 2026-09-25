@@ -9,6 +9,9 @@ describe('installMode', () => {
   test('bun add -g', () => {
     expect(installMode('/Users/a/.bun/install/global/node_modules/orca-usage')).toBe('global')
   })
+  test('BUN_INSTALL 을 옮겨 둔 bun add -g', () => {
+    expect(installMode('/opt/bun-home/install/global/node_modules/orca-usage')).toBe('global')
+  })
   test('그 밖', () => {
     expect(installMode('/tmp/nowhere-orca-usage')).toBe('other')
   })
