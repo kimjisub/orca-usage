@@ -1,7 +1,7 @@
 {
   "name": "orca-usage",
-  "version": "1.0.0",
-  "description": "Terminal dashboard for the Claude accounts managed by Orca: rate-limit usage, history graphs, and automatic account switching.",
+  "version": "1.1.0",
+  "description": "Backend and terminal screen for the Claude and Codex accounts managed by Orca: usage history, token refresh and automatic account switching, kept running by launchd.",
   "license": "MIT",
   "author": "Jisub Kim (https://github.com/kimjisub)",
   "repository": {
