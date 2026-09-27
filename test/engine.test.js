@@ -38,17 +38,19 @@ describe('재인증', () => {
     expect(calls.refresh).toEqual([])
   })
 
-  test('살아 있는 토큰은 만료 시각이 지나기 전까지 키체인을 다시 읽지 않는다', async () => {
-    const { engine, calls, advance } = setup({
+  test('살아 있는 토큰도 조회마다 만료 시각을 다시 읽고, 갱신은 하지 않는다', async () => {
+    const { engine, calls, advance, state } = setup({
       accounts: [claudeAccount('a', 1)],
       usage: { a: limits(T0) },
-      expiry: { a: T0 + 4 * HOUR },
+      expiry: { a: T0 + 2 * 60_000 },
     })
     await engine.start({ schedule: false })
-    await engine.cycle()
+    // Orca 가 그 사이 갱신했다. 다음 조회에서 새 만료가 보여야 한다.
+    state.expiry.a = T0 + 8 * HOUR
     advance(2 * 60_000)
     await engine.cycle()
-    expect(calls.peek).toEqual(['a'])
+    expect(calls.refresh).toEqual([])
+    expect(engine.snapshot().accounts[0].token.expiresAt).toBe(T0 + 8 * HOUR)
   })
 
   test('Codex 토큰은 건드리지 않는다', async () => {

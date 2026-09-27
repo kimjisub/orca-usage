@@ -66,8 +66,7 @@ export class Engine extends EventEmitter {
     this.lastShape = ''
     this.authSeen = new Set()
     this.refreshSeen = new Map()
-    // 계정별 토큰 만료 시각과 그것을 확인한 시각. 아직 살아 있으면 키체인을 다시
-    // 읽지 않으므로, 상세 화면이 그 값이 언제 것인지 함께 보여 준다.
+    // 계정별 토큰 만료 시각과 그것을 확인한 시각. 조회마다 다시 읽는다.
     this.expiry = new Map()
     this.expiryCheckedAt = new Map()
     this.refreshFailedAt = new Map()
@@ -284,19 +283,18 @@ export class Engine extends EventEmitter {
   /**
    * Orca 가 손을 놓은 Claude 토큰을 갱신한다. 정책과 무관하게 늘 돈다.
    *
-   * 살아 있는 토큰은 Orca 의 몫이라 만료 시각이 지나기 전에는 키체인도 읽지
-   * 않는다. Orca 가 그 사이 갱신했으면 만료 시각이 지난 뒤 한 번 읽어 새 시각을
-   * 알게 된다. 만료된 지 한 시간이 넘은 것만 우리가 갱신한다(core/policy.js).
+   * 만료 시각은 조회마다 키체인에서 다시 읽는다. 활성 계정은 Orca 가 만료 전에
+   * 갱신하므로, 한 번 읽은 값을 들고 있으면 몇 시간 안에 낡는다. 실측
+   * 2026-09-27: 8시간이 남은 활성 계정이 7시간 52분 전에 읽은 값 때문에 상세
+   * 화면에서 "2분 남음" 으로 보였다. 키체인 읽기는 계정당 20ms 남짓이다.
+   *
+   * 만료된 지 한 시간이 넘은 것만 우리가 갱신한다(core/policy.js).
    */
   async reauth() {
     const { keychain, store } = this.ports
     for (const account of this.accounts) {
       if (account.provider !== 'claude') continue
       const now = this.now()
-      const known = this.expiry.get(account.id)
-      if (typeof known === 'number' && known > now) continue
-      if (now - (this.refreshFailedAt.get(account.id) ?? 0) < REFRESH_RETRY_MS) continue
-
       let expiresAt
       try {
         expiresAt = await keychain.peekExpiry(account.id)
@@ -306,6 +304,7 @@ export class Engine extends EventEmitter {
       this.expiry.set(account.id, expiresAt)
       this.expiryCheckedAt.set(account.id, now)
       if (!isAbandoned(expiresAt, now)) continue
+      if (now - (this.refreshFailedAt.get(account.id) ?? 0) < REFRESH_RETRY_MS) continue
 
       let result
       try {

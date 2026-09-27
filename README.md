@@ -209,7 +209,7 @@ Which account to be on is not marked on the rows themselves; the recommendation 
 
 ### Token refresh
 
-Always on. Orca refreshes tokens only for the accounts it is using, so idle ones sit expired; once a Claude token has been expired for an hour, the backend treats it as abandoned and refreshes it. It reads the keychain for a token only after that token's known expiry has passed, and backs off for 30 minutes after a failed refresh. A live token is Orca's to rotate, since two writers rotating one refresh token leave the other revoked.
+Always on. Orca refreshes tokens only for the accounts it is using, so idle ones sit expired; once a Claude token has been expired for an hour, the backend treats it as abandoned and refreshes it. It reads every Claude token's expiry from the keychain on each poll, since Orca refreshes the active account before it expires and a remembered value goes stale within hours; the 상세 tab shows when it was read. After a failed refresh it backs off for 30 minutes. A live token is Orca's to rotate, since two writers rotating one refresh token leave the other revoked.
 
 ### Automatic switching
 
