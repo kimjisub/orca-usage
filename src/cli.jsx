@@ -11,6 +11,7 @@ import { confirm } from './client/prompt.js'
 import { PLIST_PATH, inspect, kickstart, register, unregister } from './daemon/launchd.js'
 import { installMode, versionLabel } from './adapters/install/install.js'
 import { createUpdater, repoSlug } from './adapters/install/updater.js'
+import { needsProductionRestart } from './react-env.js'
 
 const out = (text = '') => process.stdout.write(`${text}\n`)
 const fail = (text, code = 1) => {
@@ -359,6 +360,15 @@ async function versionCommand() {
 // ---- 화면 ---------------------------------------------------------------
 
 async function screen(graphStyle) {
+  if (needsProductionRestart()) {
+    // React 개발 빌드로 그리면 네이티브 메모리가 샌다(src/react-env.js). 실행
+    // 스크립트를 거치지 않고 열렸다. production 을 건 채로 다시 띄운다.
+    const next = spawnSync(process.execPath, process.argv.slice(1), {
+      stdio: 'inherit', env: { ...process.env, NODE_ENV: 'production' },
+    })
+    process.exitCode = next.status ?? 0
+    return
+  }
   const ready = await requireBackend({ interactive: true })
   if (!ready) return
   if (ready.cliPath !== CLI_PATH) {
