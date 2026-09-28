@@ -105,8 +105,11 @@ export class Engine extends EventEmitter {
       this.publish()
     }, DERIVE_MS)
     if (this.ports.updater) {
-      this.checkUpdate().catch(() => {})
-      this.timers.update = setInterval(() => this.checkUpdate().catch(() => {}), UPDATE_CHECK_MS)
+      const check = () => this.checkUpdate().catch((error) => {
+        this.note('error', `업데이트 확인 실패: ${error?.message ?? error}`, { ok: false })
+      })
+      check()
+      this.timers.update = setInterval(check, UPDATE_CHECK_MS)
     }
   }
 
@@ -195,13 +198,14 @@ export class Engine extends EventEmitter {
 
   /**
    * 계정 목록을 다시 세운다. Orca 에서 계정을 더하거나 뺀 것이 여기서 반영된다.
-   * 목록을 못 읽으면 들고 있던 것을 그대로 쓴다.
+   * 목록을 못 읽으면 들고 있던 것을 그대로 쓰고, 이유는 기록에 남긴다.
    */
   async reloadAccounts() {
     let listed
     try {
       listed = await this.ports.orca.listAccounts()
-    } catch {
+    } catch (error) {
+      this.note('error', `계정 목록 실패: ${error?.message ?? error}`, { ok: false })
       return this.accounts
     }
     let all = listed.accounts
