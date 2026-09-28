@@ -307,6 +307,8 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     // 있는 계정에서 문장이 잘려 무엇을 해야 하는지가 사라지고, 사유가 없는
     // 동안에는 그 자리가 빈 채로 그래프를 좁힌다. 지금 붙어 있는 것에 맞춘다.
     const noteOf = (row) => (row.note ? cellWidth(row.note) + 14 : 11)
+      // 재로그인 표시도 이름 옆에 붙는다. 잘리면 얼마나 급한지가 사라진다.
+      + (needsRelogin(row.token, now) ? cellWidth('재로그인 필요 (00h 00m 뒤 만료)') + 2 : 0)
     // 머리글: 들여쓰기와 번호, 별표 자리, 이름, 요금제, 값이 낡은 사유
     const header = 5 + 2 + Math.max(0, ...rows.map((row) => row.email.length))
       + Math.max(0, ...rows.map(labelOf)) + Math.max(11, ...rows.map(noteOf))
@@ -314,7 +316,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     const bar = 5 + 7 + barWidth + 5 + 9
     // 좌우 패딩 둘과 테두리 둘
     return Math.min(columns - 24, Math.max(header, bar) + 4)
-  }, [rows, columns, barWidth])
+  }, [rows, columns, barWidth, now])
 
   // 그래프 상자의 테두리와 패딩 넷을 뺀 나머지가 그래프에 돌아간다. 모자라면
   // 좁은 배치다. 상자 하나가 폭을 다 쓰고, 목록은 '계정' 탭으로 들어간다.
