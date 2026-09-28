@@ -155,9 +155,11 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
 }
 
 /** 합계 줄을 골랐을 때. 계정마다 한 줄로 값의 나이와 토큰 만료를 견준다. */
-function overviewLines(rows, now) {
+function overviewLines(rows, now, columns = 90) {
+  // 계정 칸이 남는 폭을 쓴다. 뒤의 세 칸은 값이라 잘리면 안 된다.
+  const nameWidth = Math.max(12, Math.min(30, columns - 2 - 14 - 16 - 14))
   const lines = [{ heading: '전체 계정', sub: '계정 선택 시 계정별 상세' }]
-  lines.push({ header: true, text: `${pad('계정', 30)}${pad('사용량 조회', 14)}${pad('Access token', 16)}Refresh token` })
+  lines.push({ header: true, text: `${pad('계정', nameWidth)}${pad('사용량 조회', 14)}${pad('Access token', 16)}Refresh token` })
   for (const row of rows) {
     const got = row.fetchedAt ? `${shortSpan(now - row.fetchedAt)} 전` : '조회 전'
     const access = expiryCell(row.token?.expiresAt, now)
@@ -171,7 +173,7 @@ function overviewLines(rows, now) {
     lines.push({
       table: true,
       cells: [
-        { text: pad(name.length > 28 ? `${name.slice(0, 27)}.` : name, 30), color: row.active ? 'white' : 'gray' },
+        { text: pad(name.length > nameWidth - 2 ? `${name.slice(0, nameWidth - 3)}.` : name, nameWidth), color: row.active ? 'white' : 'gray' },
         { text: pad(got, 14), color: 'white' },
         { text: pad(access.text, 16), color: access.color },
         { text: refresh.text, color: refresh.color },
@@ -185,10 +187,10 @@ function overviewLines(rows, now) {
  * 상세. 값이 언제 것이고 토큰이 얼마나 남았는지처럼, 막대로는 안 보이는 것을
  * 글로 적는다. 전부 백엔드가 준 상태를 옮겨 적는 것이고 여기서 판단하지 않는다.
  */
-export function detailLines({ row, rows, history, log, now, staleAfterMs }) {
+export function detailLines({ row, rows, history, log, now, staleAfterMs, columns }) {
   return row
     ? accountLines(row, { history, log, now, staleAfterMs })
-    : overviewLines(rows, now)
+    : overviewLines(rows, now, columns)
 }
 
 /**
@@ -196,7 +198,7 @@ export function detailLines({ row, rows, history, log, now, staleAfterMs }) {
  * 좁은 화면에서는 토큰 절이 첫 화면 밖으로 밀린다.
  */
 export function Details({ row, rows, history, log, now, height, columns, staleAfterMs, offset = 0 }) {
-  const all = detailLines({ row, rows, history, log, now, staleAfterMs })
+  const all = detailLines({ row, rows, history, log, now, staleAfterMs, columns })
   const room = Math.max(1, height)
   const start = Math.max(0, Math.min(offset, all.length - room))
   let lines = all.slice(start, start + room)
