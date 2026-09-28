@@ -74,7 +74,7 @@ function scoreOf(entry) {
       key: 'behind',
       label: '뒤처짐',
       tuningKey: 'weightBehind',
-      what: '주간 창이 흐른 만큼 안 쓴 양',
+      what: '주간 창 경과 대비 덜 쓴 양',
       how: `경과 비율에서 사용률을 뺀 값. ${BEHIND_FULL}%p 면 최대`,
       raw: `${Math.round(entry.weeklyBehind)}%p`,
       weight: weights.weightBehind,
@@ -84,7 +84,7 @@ function scoreOf(entry) {
       key: 'now',
       label: '단기',
       tuningKey: 'weightNow',
-      what: '5h 창에 지금 남은 양',
+      what: '5h 창의 남은 양',
       how: '100 에서 5h 사용률을 뺀 값',
       raw: `${Math.round(entry.burst)}%`,
       weight: weights.weightNow,
@@ -94,7 +94,7 @@ function scoreOf(entry) {
       key: 'reserve',
       label: '여력',
       tuningKey: 'weightReserve',
-      what: '주간에 남은 양',
+      what: '주간 창의 남은 양',
       how: '100 에서 7d 사용률을 뺀 값',
       raw: `${Math.round(entry.reserve)}%`,
       weight: weights.weightReserve,
@@ -175,7 +175,7 @@ function reasonFor(entry) {
   if (entry.weeklyBehind >= tuning().wasteAlert) {
     return `주간 ${Math.round(entry.weeklyBehind)}%p 뒤처짐`
   }
-  return `주간 ${Math.round(entry.reserve)}%  5h ${Math.round(entry.burst)}% 남음`
+  return `주간 ${Math.round(entry.reserve)}%, 5h ${Math.round(entry.burst)}% 남음`
 }
 
 /**

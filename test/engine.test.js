@@ -232,7 +232,7 @@ describe('계정 목록', () => {
     state.codexKnown = false
     await engine.reloadAccounts()
     expect(engine.snapshot().accounts.map((row) => row.id)).toEqual(['a', 'x'])
-    expect(state.log.filter((entry) => entry.text.includes('빠짐'))).toEqual([])
+    expect(state.log.filter((entry) => entry.text.startsWith('계정 이탈'))).toEqual([])
   })
 
   test('목록을 못 읽으면 들고 있던 계정을 두고 이유를 기록에 남긴다', async () => {
@@ -241,7 +241,7 @@ describe('계정 목록', () => {
     ports.orca.listAccounts = async () => { throw new Error('소켓 없음') }
     await engine.reloadAccounts()
     expect(engine.snapshot().accounts.map((row) => row.id)).toEqual(['a'])
-    expect(state.log.some((entry) => entry.text === '계정 목록 실패: 소켓 없음')).toBe(true)
+    expect(state.log.some((entry) => entry.text === '계정 목록 조회 실패: 소켓 없음')).toBe(true)
   })
 
   test('새 계정이 붙으면 기록에 남긴다', async () => {

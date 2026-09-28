@@ -34,18 +34,18 @@ export function decideSwitch(rows, tip, { activeId, lastSwitchAt = 0, now = Date
   if (!tip?.use) return hold('추천할 계정 없음')
 
   const active = rows.find((row) => row.id === activeId)
-  if (!active) return hold('활성 계정을 찾지 못함')
+  if (!active) return hold('사용 중 계정 확인 불가')
 
   const target = rows.find((row) => row.id === tip.use.row.id)
-  if (!target) return hold('추천 계정을 찾지 못함')
-  if (target.id === active.id) return hold('이미 추천 계정에 붙어 있음')
+  if (!target) return hold('추천 계정 확인 불가')
+  if (target.id === active.id) return hold('추천 계정 사용 중')
 
   const cooling = tuning().switchCooldownMs - (now - lastSwitchAt)
-  if (cooling > 0) return hold(`쿨다운 ${Math.ceil(cooling / 60_000)}분`)
+  if (cooling > 0) return hold(`재전환 대기 ${Math.ceil(cooling / 60_000)}분`)
 
   const activeWorst = worstOf(active)
   const targetWorst = worstOf(target)
-  if (activeWorst == null || targetWorst == null) return hold('사용량을 아직 못 받음')
+  if (activeWorst == null || targetWorst == null) return hold('사용량 조회 전')
 
   const activeBadge = tip.badges?.[active.id]
   const targetBadge = tip.badges?.[target.id]
@@ -57,13 +57,13 @@ export function decideSwitch(rows, tip, { activeId, lastSwitchAt = 0, now = Date
   // 이유 자체가 뚜렷해서 몇 %p 차이인지가 판단을 바꾸지 않는다.
   if (activeWorst >= tuning().switchAt) {
     if (activeWorst - targetWorst < tuning().switchMargin) {
-      return hold(`활성 ${Math.round(activeWorst)}%, 갈 곳도 ${Math.round(targetWorst)}%`)
+      return hold(`사용 중 ${Math.round(activeWorst)}%, 대상도 ${Math.round(targetWorst)}%`)
     }
     return {
       action: 'switch',
       target,
       why: '막힘',
-      reason: `활성 ${Math.round(activeWorst)}% -> ${target.email} ${Math.round(targetWorst)}%`,
+      reason: `사용 중 ${Math.round(activeWorst)}% -> ${target.email} ${Math.round(targetWorst)}%`,
     }
   }
 
@@ -74,7 +74,7 @@ export function decideSwitch(rows, tip, { activeId, lastSwitchAt = 0, now = Date
       action: 'switch',
       target,
       why: '소멸',
-      reason: `${target.email} 주간 쿼터가 리셋에 사라짐`,
+      reason: `${target.email} 주간 한도 리셋 전 소멸 예정`,
     }
   }
 
@@ -84,7 +84,7 @@ export function decideSwitch(rows, tip, { activeId, lastSwitchAt = 0, now = Date
       action: 'switch',
       target,
       why: '자제',
-      reason: `활성 주간 ${Math.round(active.usage.windows.find((w) => w.label === '7d')?.pct ?? 0)}% -> ${target.email}`,
+      reason: `사용 중 주간 ${Math.round(active.usage.windows.find((w) => w.label === '7d')?.pct ?? 0)}% -> ${target.email}`,
     }
   }
 
@@ -99,5 +99,5 @@ export function decideSwitch(rows, tip, { activeId, lastSwitchAt = 0, now = Date
     }
   }
 
-  return hold(`활성 ${Math.round(activeScore)}점, 갈 곳 ${Math.round(targetScore)}점, 차이 ${Math.round(gain)} < ${tuning().switchMargin}`)
+  return hold(`사용 중 ${Math.round(activeScore)}점, 대상 ${Math.round(targetScore)}점, 차이 ${Math.round(gain)} < ${tuning().switchMargin}`)
 }

@@ -16,9 +16,6 @@ const padStart = (text, width) => ' '.repeat(Math.max(0, width - cellWidth(text)
  * 오른다는 것이나 요청 사이 간격 같은 것은 사람이 정할 값이 아니다. 여기 있는
  * 것은 "언제부터 위험으로 볼까" 처럼 쓰는 사람에 따라 갈리는 것뿐이다.
  */
-// 라벨과 값, 그리고 힌트가 읽힐 만큼. 이보다 좁으면 힌트를 접고 고른 줄의
-// 것만 아래에 따로 적는다. 줄마다 잘린 문장이 늘어서면 아무것도 안 읽힌다.
-const HINT_WIDTH = LABEL_WIDTH + VALUE_WIDTH + 26
 
 /**
  * 설정 화면의 줄. 판단 기준 뒤에 켜고 끄는 정책이 온다. 켜고 끄는 줄은 좌우로
@@ -31,24 +28,34 @@ export const SETTINGS_ROWS = [
     label: '알림',
     toggle: true,
     fallback: true,
-    hint: '계정 전환과 재로그인 필요를 macOS 알림으로 띄운다',
+    hint: '계정 전환과 재로그인 필요 시 macOS 알림',
   },
 ]
 
+// 설명을 줄 옆에 붙이려면 가장 긴 설명까지 다 들어가야 한다. 모자라면 설명을
+// 접고 고른 줄의 것만 아래에 따로 적는다. 줄마다 잘린 문장이 늘어서면 아무것도
+// 안 읽힌다.
+const HINT_WIDTH = LABEL_WIDTH + VALUE_WIDTH + 2
+  + Math.max(...SETTINGS_ROWS.map((row) => cellWidth(row.hint)))
+
 export function Settings({ values, policy, selected, editing = false, height, columns }) {
   const inlineHint = columns >= HINT_WIDTH
-  const shown = SETTINGS_ROWS.slice(0, Math.max(1, height - 2))
+  // 머리글과 맺음 줄, 설명을 접었으면 그 한 줄을 뺀 만큼 항목이 선다. 넘치면
+  // 고른 항목이 보이도록 창을 민다.
+  const room = Math.max(1, height - 2 - (inlineHint ? 0 : 1))
+  const start = Math.max(0, Math.min(selected - Math.floor(room / 2), SETTINGS_ROWS.length - room))
+  const shown = SETTINGS_ROWS.slice(start, start + room)
   return (
     <Box flexDirection="column">
       <Text wrap="truncate">
         <Text color="white">{'설정'}</Text>
         {/* 좌우는 패널을 옮기는 키이기도 하다. 지금 어느 쪽으로 가는지 적는다. */}
         {editing
-          ? <Text color="yellow" bold>{'  수정 중  좌우로 값을 바꿉니다'}</Text>
-          : <Text color="gray">{'  위아래로 고르고 Enter 로 수정합니다'}</Text>}
+          ? <Text color="yellow" bold>{'  수정 중  좌우: 값 변경'}</Text>
+          : <Text color="gray">{'  위아래: 항목 선택  Enter: 수정'}</Text>}
       </Text>
-      {shown.map((item, index) => {
-        const on = index === selected
+      {shown.map((item, offset) => {
+        const on = start + offset === selected
         const value = item.toggle ? policy?.[item.key] : values[item.key]
         const changed = item.toggle ? value !== item.fallback : value !== TUNING_DEFAULTS[item.key]
         const shownValue = item.toggle ? (value ? '켜짐' : '꺼짐') : formatTuning(item, value)
@@ -69,7 +76,7 @@ export function Settings({ values, policy, selected, editing = false, height, co
         ? null
         : <Text color="gray" wrap="truncate">{`  ${SETTINGS_ROWS[selected]?.hint ?? ''}`}</Text>}
       <Text color="gray" wrap="truncate">
-        {editing ? '  0 을 누르면 기본값으로 돌아갑니다. Enter 나 Esc 로 끝냅니다' : '  좌우 화살표는 패널을 옮깁니다'}
+        {editing ? '  0: 기본값  Enter, Esc: 수정 종료' : '  좌우: 탭 이동'}
       </Text>
     </Box>
   )

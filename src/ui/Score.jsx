@@ -62,8 +62,8 @@ export function Score({ scored, activeId, useId, decision, selected, editing = f
         <Text color="white">{'판정'}</Text>
         {/* 좌우는 패널을 옮기는 키이기도 하다. 지금 어느 쪽으로 가는지 적는다. */}
         {editing
-          ? <Text color="yellow" bold>{'  수정 중  좌우로 가중치를 바꿉니다'}</Text>
-          : <Text color="gray">{'  세 지표에 가중치를 곱해 더한 점수다'}</Text>}
+          ? <Text color="yellow" bold>{'  수정 중  좌우: 가중치 변경'}</Text>
+          : <Text color="gray">{'  점수: 세 지표 x 가중치의 합'}</Text>}
       </Text>
       {shown.map((entry) => (
         <Text key={entry.row.id} wrap="truncate">
@@ -85,7 +85,7 @@ export function Score({ scored, activeId, useId, decision, selected, editing = f
 
       <Text> </Text>
       <Text color="gray" wrap="truncate">
-        {`  ${pad('지표', LABEL_WIDTH)}가중치  ${shown.map((entry) => padStart(String(entry.index), 5)).join('')}${wide ? '   무엇을 재는가' : ''}`}
+        {`  ${pad('지표', LABEL_WIDTH)}가중치  ${shown.map((entry) => padStart(String(entry.index), 5)).join('')}${wide ? '   측정 대상' : ''}`}
       </Text>
       {parts.map((part, index) => {
         const on = index === selected
@@ -108,13 +108,13 @@ export function Score({ scored, activeId, useId, decision, selected, editing = f
       })}
       {wide ? null : <Text color="gray" wrap="truncate">{`  ${parts[selected]?.what ?? ''}`}</Text>}
       <Text color="gray" wrap="truncate">
-        {`  ${parts[selected]?.how ?? ''}  ${editing ? '(0 으로 기본값, Enter 나 Esc 로 끝냅니다)' : '(위아래로 고르고 Enter 로 수정합니다)'}`}
+        {`  ${parts[selected]?.how ?? ''}  ${editing ? '(0: 기본값  Enter, Esc: 수정 종료)' : '(위아래: 지표 선택  Enter: 수정)'}`}
       </Text>
       <Text wrap="truncate">
         <Text color="gray">{'  전환  '}</Text>
         <Text color={decision?.action === 'switch' ? 'green' : 'gray'}>
           {decision
-            ? `${decision.action === 'switch' ? `옮김[${decision.why}] ` : ''}${decision.reason}`
+            ? `${decision.action === 'switch' ? `전환 (${decision.why}) ` : ''}${decision.reason}`
             : '판단 전'}
         </Text>
       </Text>

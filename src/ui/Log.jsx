@@ -1,16 +1,18 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import { clockAt } from '../core/format.js'
+import { cellWidth, clockAt } from '../core/format.js'
 
-// 종류마다 이름과 색. 이름은 넉 자로 맞춰 세로가 줄로 읽힌다.
+// 종류마다 이름과 색. 이름 칸을 맞춰 세로가 줄로 읽힌다.
 const KIND = {
   poll: { label: '조회', color: 'gray' },
   token: { label: '토큰', color: 'cyan' },
-  cycle: { label: '사이클', color: 'green' },
+  cycle: { label: '창 열기', color: 'green' },
   switch: { label: '전환', color: 'yellow' },
   error: { label: '실패', color: 'red' },
 }
-const LABEL_WIDTH = 7
+// 가장 긴 이름(창 열기)이 일곱 칸이다. 한글은 두 칸이라 padEnd 로는 안 맞는다.
+const LABEL_WIDTH = 9
+const pad = (text, width) => text + ' '.repeat(Math.max(0, width - cellWidth(text)))
 
 /** 제목 한 줄을 빼고 목록에 돌아가는 줄 수. 스크롤 한계를 재는 쪽과 같은 값을 쓴다. */
 export const logVisibleRows = (height) => Math.max(1, height - 1)
@@ -26,7 +28,7 @@ export const logVisibleRows = (height) => Math.max(1, height - 1)
  */
 export function Log({ entries, now, offset = 0, height, columns }) {
   if (entries.length === 0) {
-    return <Text color="gray">{'아직 기록이 없습니다'}</Text>
+    return <Text color="gray">{'기록 없음'}</Text>
   }
   const rows = logVisibleRows(height)
   // 기록이 쌓이거나 창이 커지면 보던 자리가 목록 밖으로 나갈 수 있다.
@@ -37,11 +39,11 @@ export function Log({ entries, now, offset = 0, height, columns }) {
   return (
     <Box flexDirection="column">
       <Text wrap="truncate">
-        <Text color="white">{'제어 기록'}</Text>
+        <Text color="white">{'동작 기록'}</Text>
         <Text color="gray">{`  최근 ${entries.length}건`}</Text>
         {/* 어디쯤 보고 있는지. 다 들어가면 굴릴 것이 없으므로 적지 않는다. */}
         {entries.length > rows
-          ? <Text color="cyan">{`  ${start + 1}-${start + shown.length}  (위아래로, PgUp PgDn 으로 한 쪽씩)`}</Text>
+          ? <Text color="cyan">{`  ${start + 1}-${start + shown.length}  위아래: 한 줄  PgUp, PgDn: 한 쪽`}</Text>
           : null}
       </Text>
       {shown.map((entry, index) => {
@@ -49,7 +51,7 @@ export function Log({ entries, now, offset = 0, height, columns }) {
         return (
           <Text key={`${entry.at}-${index}`} wrap="truncate">
             <Text color="gray">{clockAt(entry.at, { withDate: withDate(entry.at) }).padEnd(6)}</Text>
-            <Text color={kind.color}>{` ${kind.label.padEnd(LABEL_WIDTH - 1)}`}</Text>
+            <Text color={kind.color}>{` ${pad(kind.label, LABEL_WIDTH - 1)}`}</Text>
             {entry.email ? <Text color="white">{`${entry.email.split('@')[0]}  `}</Text> : null}
             <Text color={entry.kind === 'error' || entry.ok === false ? 'red' : 'gray'}>{entry.text}</Text>
           </Text>

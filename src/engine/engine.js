@@ -230,7 +230,7 @@ export class Engine extends EventEmitter {
     try {
       listed = await this.ports.orca.listAccounts()
     } catch (error) {
-      this.note('error', `계정 목록 실패: ${error?.message ?? error}`, { ok: false })
+      this.note('error', `계정 목록 조회 실패: ${error?.message ?? error}`, { ok: false })
       return this.accounts
     }
     let all = listed.accounts
@@ -246,7 +246,7 @@ export class Engine extends EventEmitter {
       const added = all.filter((account) => !this.knownIds.has(account.id))
       const gone = [...this.knownIds].filter((id) => !ids.has(id))
       if (added.length) this.note('poll', `계정 합류: ${added.map((account) => account.email).join(', ')}`)
-      if (gone.length) this.note('poll', `계정 ${gone.length}개가 목록에서 빠짐`)
+      if (gone.length) this.note('poll', `계정 이탈: ${gone.length}개`)
     }
     this.knownIds = ids
     this.accounts = all
@@ -279,7 +279,7 @@ export class Engine extends EventEmitter {
     this.lastShape = shape
     const viaOrca = fresh.filter((row) => row.source === 'orca').length
     const how = viaOrca === fresh.length ? 'Orca' : `Orca ${viaOrca}, 직접 ${fresh.length - viaOrca}`
-    this.note('poll', `${fresh.length} 계정, ${how}`)
+    this.note('poll', `사용량 조회: ${fresh.length}개 계정, ${how}`)
   }
 
   /** Orca 가 꺼져 직접 조회하는 동안 그 경로가 갱신한 토큰을 적는다. */
@@ -425,11 +425,16 @@ export class Engine extends EventEmitter {
     const expiresAt = this.expiry.get(row.id) ?? null
     const failedAt = this.refreshFailedAt.get(row.id) ?? null
     const waiting = failedAt != null && now - failedAt < REFRESH_RETRY_MS
+    // 우리가 한 갱신은 캐시에 남아 백엔드를 다시 띄워도 안다. 만료가 늘어난 것을
+    // 본 시각과 견줘 나중 것을 갱신 시각으로 쓴다.
+    const observed = this.accessRenewedAt.get(row.id) ?? null
+    const ours = this.refreshSeen.get(row.id) ?? null
     return {
       expiresAt,
-      renewedAt: this.accessRenewedAt.get(row.id) ?? null,
+      renewedAt: Math.max(observed ?? 0, ours ?? 0) || null,
+      renewedBy: ours != null && ours >= (observed ?? 0) ? 'backend' : observed != null ? 'other' : null,
       checkedAt: this.expiryCheckedAt.get(row.id) ?? null,
-      refreshedAt: this.refreshSeen.get(row.id) ?? null,
+      refreshedAt: ours,
       owner: waiting ? 'retry' : isAbandoned(expiresAt, now) ? 'backend' : 'orca',
       retryAt: waiting ? failedAt + REFRESH_RETRY_MS : null,
       source: 'keychain',
@@ -449,8 +454,8 @@ export class Engine extends EventEmitter {
       const lastAt = log.find((entry) => entry.kind === 'cycle' && entry.email === row.email)?.at ?? 0
       if (now - lastAt < tuning().openCooldownMs) continue
       const result = await keychain.openWindow(row.id)
-      if (result.refreshed) this.note('token', '창 열기 전에 갱신함', { email: row.email })
-      this.note('cycle', result.ok ? '창 열음' : `창 못 열음: ${result.reason}`,
+      if (result.refreshed) this.note('token', '토큰 갱신 (창 열기 전)', { email: row.email })
+      this.note('cycle', result.ok ? '창 열기' : `창 열기 실패: ${result.reason}`,
         { email: row.email, ok: result.ok })
     }
   }
@@ -486,7 +491,7 @@ export class Engine extends EventEmitter {
       this.active = { ...this.active, claude: verdict.target.id }
       this.policy.lastSwitchAt = this.now()
       this.savePolicy()
-      this.note('switch', `자동[${verdict.why}] ${verdict.reason}`, { email: verdict.target.email })
+      this.note('switch', `자동 전환 (${verdict.why}): ${verdict.reason}`, { email: verdict.target.email })
       this.alert('계정 전환', `${verdict.target.email} 로 옮겼습니다 (${verdict.why}). 새 세션부터 적용됩니다`)
     } catch (error) {
       this.note('error', `자동 전환 실패: ${error.message}`, { email: verdict.target.email, ok: false })
@@ -640,7 +645,7 @@ export class Engine extends EventEmitter {
 
   /** 계정 하나를 숨기거나 되돌린다(x). 숨긴 계정은 합계와 추천, 자동 전환에서 빠진다. */
   setHidden(accountId, hidden) {
-    if (typeof accountId !== 'string') throw new Error('계정 id 가 필요합니다')
+    if (typeof accountId !== 'string') throw new Error('계정 ID 가 필요합니다')
     const ids = new Set(this.policy.hiddenIds)
     if (hidden) ids.add(accountId)
     else ids.delete(accountId)
@@ -667,7 +672,7 @@ export class Engine extends EventEmitter {
     if (!this.ports.updater) throw new Error('이 설치에서는 업데이트를 할 수 없습니다')
     const result = await this.ports.updater.apply()
     if (result.changed) {
-      this.note('poll', `업데이트 ${result.from ?? '?'} -> ${result.to ?? '?'}, 다시 뜹니다`)
+      this.note('poll', `업데이트 ${result.from ?? '?'} -> ${result.to ?? '?'}, 백엔드 재시작`)
       this.emit('restart', result)
     } else {
       this.updateInfo = { ...(this.updateInfo ?? {}), available: false, checkedAt: this.now() }

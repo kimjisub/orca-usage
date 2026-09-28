@@ -7,10 +7,10 @@ import { Bar } from './Bar.jsx'
 export const ACTIVE_MARK = '*'
 
 /** 계정 하나가 차지하는 줄 수. 클릭 좌표를 행으로 되짚을 때 쓴다. */
-export function blockHeight(row) {
+export function blockHeight(row, gap = true) {
   const windows = (row.usage?.windows ?? []).length
   const credits = row.credits?.available ? 1 : 0
-  return 1 + (windows || 1) + credits + 1 // 머리글 + 창들(없으면 안내 1줄) + 크레딧 + 빈 줄
+  return 1 + (windows || 1) + credits + (gap ? 1 : 0) // 머리글 + 창들(없으면 안내 1줄) + 크레딧 + 빈 줄
 }
 
 /**
@@ -28,12 +28,12 @@ function staleTag(row, now, staleAfterMs) {
   // 실패해도 Orca 가 지난 값을 함께 주므로, 사유만 있으면 막대를 지금 값으로
   // 읽게 된다.
   if (row.note) return old ? `${row.note}, ${old}` : row.note
-  if (!row.usage) return '대기 중'
+  if (!row.usage) return '조회 대기'
   return old
 }
 
 export function AccountBlock({
-  row, active, dimmed, selected, now, barWidth, staleAfterMs,
+  row, active, dimmed, selected, now, barWidth, staleAfterMs, gap = true,
 }) {
   const tag = staleTag(row, now, staleAfterMs)
   const windows = row.usage?.windows ?? []
@@ -65,14 +65,15 @@ export function AccountBlock({
             now={now}
           />
           ))
-        : <Text color="gray">{'     아직 받은 사용량이 없습니다'}</Text>}
+        : <Text color="gray">{'     사용량 조회 전'}</Text>}
 
       {/* 크레딧을 쓰면 짧은 창이 즉시 비므로, 남은 개수가 곧 몇 번 더 버티느냐다. */}
       {row.credits?.available
         ? <Text color="gray">{`     리셋 크레딧 ${row.credits.available}개`}</Text>
         : null}
 
-      <Text> </Text>
+      {/* 목록의 마지막 블록은 빈 줄을 뺀다. 낮은 화면에서 그 한 줄이 추천을 밀어낸다. */}
+      {gap ? <Text> </Text> : null}
     </>
   )
 }

@@ -38,10 +38,10 @@ export function TotalBars({ rows, label, width, now, selected }) {
       <Text wrap="truncate">
         <Text color="cyan" bold>{selected ? '>' : ' '}</Text>
         <Text color="white" bold>{` ${label}`}</Text>
-        <Text color="gray">{`   ${rows.length} 계정`}</Text>
+        <Text color="gray">{`   계정 ${rows.length}개`}</Text>
       </Text>
       {windows.length === 0
-        ? <Text color="gray">{'     아직 받은 사용량이 없습니다'}</Text>
+        ? <Text color="gray">{'     사용량 조회 전'}</Text>
         : windows.map((window) => (
           <Bar
             key={window.label}

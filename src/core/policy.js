@@ -57,7 +57,7 @@ export function needsOpening(row, now = Date.now()) {
  * @returns {string|null} 거절 사유. 받으면 null
  */
 export function refuseManualRefresh(account, { orcaConnected, expiresAt, now = Date.now() }) {
-  if (!account) return '계정을 고른 뒤 눌러 주세요'
+  if (!account) return '계정을 먼저 고르세요'
   if (account.provider !== 'claude') return 'Codex 토큰은 Orca 만 다룹니다'
   if (!orcaConnected) return null
   if (isAbandoned(expiresAt, now)) return null

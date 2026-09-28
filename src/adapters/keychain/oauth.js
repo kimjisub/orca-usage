@@ -133,7 +133,7 @@ export async function ensureToken(accountId, { allowRefresh, lastRefreshAt = 0, 
       throw new CredentialError(`키체인에 쓴 값이 다시 읽히지 않습니다. 백업: ${backup}`)
     }
     const fresh = JSON.parse(result.payload).claudeAiOauth
-    return { token: fresh.accessToken, note: '토큰 갱신함', refreshed: true, expiresAt: fresh.expiresAt }
+    return { token: fresh.accessToken, note: '토큰 갱신', refreshed: true, expiresAt: fresh.expiresAt }
   })
 
   if (!acquired) return { ...base, note: '토큰 만료 (다른 곳에서 갱신 중입니다)' }

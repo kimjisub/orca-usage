@@ -63,11 +63,11 @@ function plan(height, accountCount) {
  */
 export function Schedule({ rows, historyById, now, height, columns }) {
   const schedule = buildSchedule(rows, historyById, now)
-  if (!schedule) return <Text color="gray">{'표본이 쌓이면 여기에 그려집니다'}</Text>
+  if (!schedule) return <Text color="gray">{'표본 없음 (조회가 쌓이면 표시)'}</Text>
 
   const shown = plan(height, schedule.today.length)
   const wideEnough = columns >= LABEL_WIDTH + 24 + TAG_WIDTH
-  const basis = schedule.hasBurn ? '관측 속도로 예측' : '예측 없음, 리셋만'
+  const basis = schedule.hasBurn ? '관측 속도 기준 예측' : '리셋 시각만 표시 (예측 없음)'
 
   return (
     <Box flexDirection="column">
@@ -94,7 +94,7 @@ export function Schedule({ rows, historyById, now, height, columns }) {
                 label={`${account.index} ${account.email.split('@')[0]}`}
                 cells={account.cells}
                 tag={wideEnough && account.blockedUntil
-                  ? `5h ${Math.round(account.shortPct)}%, ${clockAt(account.blockedUntil)} 풀림`
+                  ? `5h ${Math.round(account.shortPct)}%, ${clockAt(account.blockedUntil)} 해제`
                   : null}
               />
             ))}

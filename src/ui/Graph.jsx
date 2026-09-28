@@ -129,7 +129,7 @@ export function OverviewGraph({
             style={style}
           />
           ))
-        : <Empty text="표본이 쌓이면 여기에 그려집니다" />}
+        : <Empty text="표본 없음 (조회가 쌓이면 표시)" />}
 
     </Box>
   )
@@ -137,7 +137,7 @@ export function OverviewGraph({
 
 /** 시간을 한두 단위로 줄여 쓴다. 요약 줄은 자리가 좁다. */
 function hours(value) {
-  if (value == null) return '넉넉'
+  if (value == null) return '여유'
   if (value < 1) return `${Math.round(value * 60)}m`
   if (value < 48) return `${Math.round(value)}h`
   return `${Math.round(value / 24)}d`
@@ -165,7 +165,7 @@ function Pick({ label, entry, detail, tone = 'white' }) {
 /**
  * 추천 요약. 자리가 좁으면 지금 붙을 곳과 자동 전환 상태만 남긴다.
  *
- * 계정 한 줄이 '큰 작업' 이나 '아껴둘 것' 보다 급하다. 목록이 잘려 계정이
+ * 계정 한 줄이 '큰 작업' 이나 '아낄 계정' 보다 급하다. 목록이 잘려 계정이
  * 안 보이면 추천에 적힌 번호가 화면 어디에도 없게 된다.
  */
 /** Advice 가 차지하는 줄 수. 목록 예산을 잴 때 렌더와 같은 값을 쓴다. */
@@ -177,15 +177,15 @@ export function Advice({ tip, compact = false }) {
       {tip?.allBlocked
         ? (
           <Text wrap="truncate">
-            <Text color="red" bold>{'지금 쓰기  '}</Text>
+            <Text color="red" bold>{'지금 사용  '}</Text>
             <Text color="gray">
               {tip.soonestUnblock
-                ? `모두 막힘. ${tip.soonestUnblock.index}번이 ${hours((tip.soonestUnblock.shortResetIn ?? 0) / 3600000)} 뒤 풀림`
-                : '모두 막힘'}
+                ? `전 계정 한도 도달, ${tip.soonestUnblock.index}번 ${hours((tip.soonestUnblock.shortResetIn ?? 0) / 3600000)} 뒤 해제`
+                : '전 계정 한도 도달'}
             </Text>
           </Text>
           )
-        : <Pick label="지금 쓰기" entry={tip?.use} detail={tip?.useReason ?? ''} />}
+        : <Pick label="지금 사용" entry={tip?.use} detail={tip?.useReason ?? ''} />}
       {compact
         ? null
         : (
@@ -194,11 +194,11 @@ export function Advice({ tip, compact = false }) {
               label="큰 작업"
               entry={tip?.heavy}
               detail={tip?.heavy
-                ? `주간 ${Math.round(tip.heavy.reserve)}%  이 속도로 ${hours(tip.heavy.runwayHours)}`
+                ? `주간 ${Math.round(tip.heavy.reserve)}% 남음, 현재 속도로 ${hours(tip.heavy.runwayHours)}`
                 : ''}
             />
             {tip?.avoid
-              ? <Pick label="아껴둘 것" entry={tip.avoid} detail={`주간 ${Math.round(tip.avoid.weeklyPct)}% 씀`} tone="gray" />
+              ? <Pick label="아낄 계정" entry={tip.avoid} detail={`주간 ${Math.round(tip.avoid.weeklyPct)}% 사용`} tone="gray" />
               : <Text> </Text>}
           </>
           )}
@@ -206,29 +206,32 @@ export function Advice({ tip, compact = false }) {
   )
 }
 
-/** 자동 전환이 지금 무엇을 보고 있는지. 켜져 있어도 대개는 대기 상태다. */
 /** 자동 블록이 차지하는 줄 수. 목록 예산을 잴 때 렌더와 같은 값을 쓴다. */
-export const AUTO_BLOCK_ROWS = 1
+export const AUTO_BLOCK_ROWS = 2
 
 /**
- * 이 도구가 스스로 하는 일의 현재 상태 한 줄.
+ * 이 도구가 스스로 하는 일의 현재 상태. 조회 한 줄, 켜진 기능 한 줄이다.
  *
- * 종류마다 마지막에 한 일까지 적었더니 네 줄이 되었고, 그중 둘은 켜는 법을
- * 알려주는 안내문이라 자리만 먹었다. 무엇이 켜져 있고 마지막 조회가 언제인지만
- * 남긴다. 무슨 일이 있었는지는 기록 탭이 훨씬 자세히 보여준다.
+ * 무슨 일이 있었는지는 기록 탭이 자세히 보여 준다. 여기는 무엇이 켜져 있고
+ * 마지막 조회가 언제인지만 둔다. 한 줄에 몰면 좁은 목록에서 뒤쪽이 잘린다.
  */
 export function AutoBlock({ poll, orcaConnected, keepAlive, autoSwitch, failures, now }) {
   const lastAt = poll?.lastAt ?? 0
   return (
-    <Text wrap="truncate">
-      <Text color="gray">{'자동  '}</Text>
-      <Text color="white">
-        {lastAt ? `조회 ${shortSpan(now - lastAt)} 전${orcaConnected ? ', Orca' : ', 직접'}` : '조회 대기'}
+    <>
+      <Text wrap="truncate">
+        <Text color="gray">{'조회  '}</Text>
+        <Text color="white">
+          {lastAt ? `${shortSpan(now - lastAt)} 전, ${orcaConnected ? 'Orca 경유' : '직접 조회'}` : '대기'}
+        </Text>
+        {failures ? <Text color="red">{`  최근 1시간 실패 ${failures}건`}</Text> : null}
       </Text>
-      <Text color={keepAlive ? 'green' : 'gray'}>{`  사이클 ${keepAlive ? '켜짐' : '꺼짐'}`}</Text>
-      <Text color={autoSwitch ? 'green' : 'gray'}>{`  전환 ${autoSwitch ? '켜짐' : '꺼짐'}`}</Text>
-      {failures ? <Text color="red">{`  실패 ${failures}건`}</Text> : null}
-    </Text>
+      <Text wrap="truncate">
+        <Text color="gray">{'자동  '}</Text>
+        <Text color={keepAlive ? 'green' : 'gray'}>{`창 미리 열기 ${keepAlive ? '켬' : '끔'}`}</Text>
+        <Text color={autoSwitch ? 'green' : 'gray'}>{`  계정 전환 ${autoSwitch ? '켬' : '끔'}`}</Text>
+      </Text>
+    </>
   )
 }
 
@@ -239,14 +242,14 @@ export function Graph({
   const all = (row.usage?.windows ?? []).map((w) => w.label)
   const keys = keysForMode(all, mode)
   if (!history?.length || keys.length === 0) {
-    return <Empty text={`${row.email} - 표본이 쌓이면 여기에 그려집니다`} />
+    return <Empty text={`${row.email}  표본 없음 (조회가 쌓이면 표시)`} />
   }
 
   const dots = style === 'braille' && mode !== 'rate' ? DOTS_PER_CELL_X : 1
   const width = Math.max(10, columns - AXIS_WIDTH) * dots
   const { series, min, max, from, to } = chartSeries(history, keys, width, mode, rangeMs)
   if (!series.some((line) => line.some(isNumber))) {
-    return <Empty text={`${row.email} - 표본이 쌓이면 여기에 그려집니다`} />
+    return <Empty text={`${row.email}  표본 없음 (조회가 쌓이면 표시)`} />
   }
 
   const plan = planPanels(height - 1, keys)

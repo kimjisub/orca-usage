@@ -17,7 +17,7 @@ describe('isAbandoned', () => {
 describe('refuseManualRefresh', () => {
   const claude = { id: 'a', provider: 'claude' }
   test('계정이 없으면 거절한다', () => {
-    expect(refuseManualRefresh(null, { orcaConnected: true, expiresAt: null, now: NOW })).toContain('고른')
+    expect(refuseManualRefresh(null, { orcaConnected: true, expiresAt: null, now: NOW })).toContain('고르세요')
   })
   test('Codex 는 거절한다', () => {
     expect(refuseManualRefresh({ provider: 'codex' }, { orcaConnected: false, now: NOW })).toContain('Codex')

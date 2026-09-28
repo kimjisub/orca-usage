@@ -16,8 +16,9 @@ import { Log, logVisibleRows } from './Log.jsx'
 import { SETTINGS_ROWS, Settings } from './Settings.jsx'
 import { Help, helpRows, helpVisibleRows } from './Help.jsx'
 import { Score } from './Score.jsx'
-import { Details } from './Details.jsx'
+import { Details, detailLines } from './Details.jsx'
 import { needsScreenRestart } from './follow-backend.js'
+import { actionLines, tabWindow } from './bars.js'
 
 const HEADER_ROWS = 2
 // 종료와 업데이트를 되묻는 시간. 이 안에 다시 누르면 한다.
@@ -28,6 +29,10 @@ const PROVIDER_LABEL = { claude: 'Claude', codex: 'Codex' }
 const TOTAL_AT = { claude: -1, codex: -3 }
 const TOTAL_PROVIDER = { '-1': 'claude', '-3': 'codex' }
 const totalAt = (provider) => TOTAL_AT[provider] ?? TOTAL_AT.claude
+// 좁은 화면에서 목록이 차지하는 탭. 넓으면 목록이 왼쪽에 늘 서 있어 탭이 없다.
+const ACCOUNTS_TAB = { mode: 'accounts', label: '계정' }
+// 고른 계정을 대상으로 그리는 탭. 좁은 화면에서는 목록이 안 보이므로 대상을 따로 적는다.
+const TARGETED = new Set(['level', 'rate', 'detail'])
 // 오른쪽 패널이 보여줄 것. 좌우 화살표가 이 순서로 돌고 탭도 이 순서다.
 const GRAPH_TABS = [
   { mode: 'level', label: '사용량' },
@@ -57,7 +62,7 @@ const ACTIONS = [
   { key: 'a', label: '자동 전환' },
   { key: 'o', label: '창 미리 열기' },
   { key: 'w', label: '기간' },
-  { key: 'x', label: '숨기기' },
+  { key: 'x', label: '숨김' },
   { key: 'enter', label: '계정 전환' },
   { key: 'q', label: '종료' },
 ]
@@ -72,22 +77,22 @@ function Header({ status, snapshot, hello, now, message }) {
   const poll = snapshot?.poll
   let right
   if (status === 'lost') {
-    right = <Text color="yellow" bold>{'백엔드 연결 끊김, 다시 붙는 중'}</Text>
+    right = <Text color="yellow" bold>{'백엔드 연결 끊김, 재연결 중'}</Text>
   } else if (!snapshot) {
-    right = <Text color="gray">{'백엔드에 붙는 중'}</Text>
+    right = <Text color="gray">{'백엔드 연결 중'}</Text>
   } else {
     const countdown = poll?.running ? '조회 중' : poll?.nextAt ? `다음 조회 ${shortSpan(poll.nextAt - now)}` : ''
     right = (
       <>
         {/* Orca 없이 직접 치는 중이면 알린다. 값이 낡거나 백오프에 걸릴 수 있어서다. */}
-        {snapshot.orca?.connected ? null : <Text color="yellow">{'Orca 연결 안 됨, 직접 조회  '}</Text>}
+        {snapshot.orca?.connected ? null : <Text color="yellow">{'Orca 연결 없음, 직접 조회  '}</Text>}
         {hello && hello.version !== SCREEN_VERSION
-          ? <Text color="yellow">{`백엔드 ${hello.version}  `}</Text>
+          ? <Text color="yellow">{`백엔드 버전 ${hello.version}  `}</Text>
           : null}
         {snapshot.update?.available ? <Text color="cyan" bold>{'업데이트 있음 (u)  '}</Text> : null}
         {snapshot.policy?.autoSwitch ? <Text color="green" bold>{'자동 전환  '}</Text> : null}
         {/* 터미널에서 직접 띄운 백엔드다. 그 터미널을 닫으면 사라진다. */}
-        {hello && hello.source !== 'launchd' ? <Text color="gray">{'직접 띄운 백엔드  '}</Text> : null}
+        {hello && hello.source !== 'launchd' ? <Text color="gray">{'수동 실행 백엔드  '}</Text> : null}
         <Text color="gray">{countdown}</Text>
       </>
     )
@@ -109,71 +114,60 @@ function Header({ status, snapshot, hello, now, message }) {
   )
 }
 
-function ActionBar({ updateAvailable }) {
-  const actions = updateAvailable ? [...ACTIONS.slice(0, -1), { key: 'u', label: '업데이트' }, ACTIONS.at(-1)] : ACTIONS
+/** 업데이트가 있으면 u 가 종료 앞에 들어간다. */
+const actionsFor = (updateAvailable) => (updateAvailable
+  ? [...ACTIONS.slice(0, -1), { key: 'u', label: '업데이트' }, ACTIONS.at(-1)]
+  : ACTIONS)
+
+/** 단축키 줄. 폭이 모자라면 항목을 통째로 다음 줄로 넘긴다(bars.js). */
+function ActionBar({ lines }) {
   return (
-    <Text wrap="truncate">
-      {'  '}
-      {actions.map((action) => (
-        <Text key={action.key}>
-          <Text color="cyan">{`[${action.key}]`}</Text>
-          <Text color="gray">{` ${action.label}  `}</Text>
+    <Box flexDirection="column" flexShrink={0}>
+      {lines.map((line, index) => (
+        <Text key={index} wrap="truncate">
+          {'  '}
+          {line.map((action) => (
+            <Text key={action.key}>
+              <Text color="cyan">{`[${action.key}]`}</Text>
+              <Text color="gray">{` ${action.label}  `}</Text>
+            </Text>
+          ))}
         </Text>
       ))}
-    </Text>
+    </Box>
   )
 }
 
 // 탭 줄의 클릭 좌표를 재는 자리. 계정 번호와 안 겹치는 값이면 된다.
 const TAB_HIT = -2
 
-// 탭 줄의 머리. 여기부터 탭이 늘어선다. 좌우 화살표로 옮긴다는 것을 적어 둔다.
-const TAB_LEAD = ' <> '
-
 /**
- * 탭이 차지하는 열 범위. 클릭한 자리가 어느 탭인지 여기서 가른다.
- *
- * 고른 탭은 대괄호, 나머지는 공백이라 폭이 같다. 그래서 무엇을 고르든 자리가
- * 움직이지 않고, 렌더와 이 계산이 어긋날 일도 없다.
+ * 탭 줄. 무엇을 볼 수 있고 지금 어디인지 한 줄로 보인다. 눌러도 바뀐다.
+ * 폭이 모자라면 고른 탭 주변만 두고 가려진 쪽에 `<` `>` 를 붙인다(bars.js).
  */
-const TAB_RANGES = (() => {
-  let at = cellWidth(TAB_LEAD)
-  return GRAPH_TABS.map((tab) => {
-    const width = cellWidth(tab.label) + 3
-    const range = { mode: tab.mode, start: at, end: at + width }
-    at += width
-    return range
-  })
-})()
-
-// 탭이 다 들어가려면 이만큼 필요하다.
-const TAB_ROW_WIDTH = TAB_RANGES.at(-1)?.end ?? 0
-
-/**
- * 오른쪽 패널의 탭. 무엇을 볼 수 있고 지금 어디인지 한 줄로 보인다. 눌러도 바뀐다.
- *
- * 폭이 모자라면 뒤쪽 탭이 통째로 잘려 무엇이 더 있는지조차 안 보인다. 그때는
- * 고른 것 하나와 몇 번째인지만 남긴다.
- */
-function GraphTabs({ mode, width }) {
-  const at = GRAPH_TABS.findIndex((tab) => tab.mode === mode)
-  if (width < TAB_ROW_WIDTH) {
-    return (
-      <Text wrap="truncate">
-        <Text color="gray">{TAB_LEAD}</Text>
-        <Text color="cyan" bold>{`[${GRAPH_TABS[at]?.label ?? ''}]`}</Text>
-        <Text color="gray">{`  ${at + 1}/${GRAPH_TABS.length}`}</Text>
-      </Text>
-    )
-  }
+function Tabs({ view, mode }) {
   return (
     <Text wrap="truncate">
-      <Text color="gray">{TAB_LEAD}</Text>
-      {GRAPH_TABS.map((tab) => (
+      <Text color="gray">{view.lead}</Text>
+      {view.items.map((tab) => (
         <Text key={tab.mode} color={tab.mode === mode ? 'cyan' : 'gray'} bold={tab.mode === mode}>
           {tab.mode === mode ? ` [${tab.label}]` : `  ${tab.label} `}
         </Text>
       ))}
+      <Text color="gray">{view.tail}</Text>
+    </Text>
+  )
+}
+
+/** 좁은 화면에서 그래프와 상세가 누구를 그리는지. 목록이 안 보여서 따로 적는다. */
+function TargetLine({ row, provider }) {
+  return (
+    <Text wrap="truncate">
+      <Text color="gray">{'대상  '}</Text>
+      {row
+        ? <Text color="white">{`${row.index} ${row.email}`}</Text>
+        : <Text color="white">{`${PROVIDER_LABEL[provider] ?? provider} 전체`}</Text>}
+      <Text color="gray">{'  (위아래로 변경)'}</Text>
     </Text>
   )
 }
@@ -209,6 +203,8 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   const [logAt, setLogAt] = useState(0)
   // 도움말도 한 화면에 안 들어간다. 같은 손놀림으로 굴린다.
   const [helpAt, setHelpAt] = useState(0)
+  // 상세는 위아래가 계정을 고르므로 PgUp PgDn 으로만 굴린다.
+  const [detailAt, setDetailAt] = useState(0)
   const [message, setMessage] = useState(null)
   const [now, setNow] = useState(Date.now())
 
@@ -218,7 +214,11 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     setEditing(false)
     setLogAt(0)
     setHelpAt(0)
+    setDetailAt(0)
   }, [graphMode])
+
+  // 다른 계정의 상세는 맨 위부터 본다.
+  useEffect(() => setDetailAt(0), [selected])
 
   // 카운트다운을 위해 1초마다 시각만 새로 잡는다.
   useEffect(() => {
@@ -312,18 +312,21 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     return Math.min(columns - 24, Math.max(header, bar) + 4)
   }, [rows, columns, barWidth])
 
-  // 그래프 상자의 테두리와 패딩 넷을 뺀 나머지가 그래프에 돌아간다.
-  const graphFits = columns - listWidth - 4 >= MIN_GRAPH_WIDTH
-  // 글로 된 패널은 선이 아니라서 좁아도 읽히지만, 좌우로 나눈 채로는 양쪽 다
-  // 눌린다. 나란히 세울 자리가 없으면 고른 것 하나가 폭을 다 쓰고 계정 목록은
-  // 그동안 접힌다. 사용량과 소비는 그래프라 접히던 대로 접힌다.
-  const textPanel = ['detail', 'schedule', 'score', 'log', 'settings', 'help'].includes(graphMode)
-  const graphVisible = graphFits || textPanel
-  const listVisible = graphFits || !graphVisible
+  // 그래프 상자의 테두리와 패딩 넷을 뺀 나머지가 그래프에 돌아간다. 모자라면
+  // 좁은 배치다. 상자 하나가 폭을 다 쓰고, 목록은 '계정' 탭으로 들어간다.
+  // 탭 줄이 늘 보이므로 어느 폭에서든 모든 탭에 닿는다.
+  const wide = columns - listWidth - 4 >= MIN_GRAPH_WIDTH
+  const tabs = wide ? GRAPH_TABS : [ACCOUNTS_TAB, ...GRAPH_TABS]
+  // 넓어지면 '계정' 탭이 없다. 목록이 왼쪽에 늘 서 있으므로 사용량을 그린다.
+  const mode = wide && graphMode === 'accounts' ? 'level' : graphMode
   const adviceCompact = screenRows < TIGHT_ROWS
-  const panelWidth = graphVisible && listVisible ? listWidth : columns
-  // 오른쪽 상자 안쪽 폭. 테두리 둘과 패딩 둘을 뺀다.
-  const graphWidth = (listVisible ? columns - panelWidth : columns) - 4
+  const panelWidth = wide ? listWidth : columns
+  // 탭이 있는 상자(좁으면 유일한 상자)의 안쪽 폭. 테두리 둘과 패딩 둘을 뺀다.
+  const graphWidth = (wide ? columns - panelWidth : columns) - 4
+  const tabView = tabWindow(tabs, mode, graphWidth)
+  const actionRows = actionLines(actionsFor(Boolean(snapshot?.update?.available)), columns)
+  // 좁은 화면에서 계정을 대상으로 그리는 탭은 대상 줄 하나를 더 쓴다.
+  const showTarget = !wide && TARGETED.has(mode)
 
   // ---- 알림과 요청 ----
 
@@ -357,29 +360,29 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
 
   const doRefresh = useCallback(() => send('refresh', {}, {
     pending: '전체 재조회 중',
-    done: (result) => (result?.ok === false ? `조회 실패: ${result.error}` : '조회 끝'),
+    done: (result) => (result?.ok === false ? `조회 실패: ${result.error}` : '전체 재조회 완료'),
   }), [send])
 
   const doToken = useCallback(() => {
-    if (!selectedRow) return notify('계정을 고른 뒤 눌러 주세요')
+    if (!selectedRow) return notify('계정을 먼저 고르세요')
     return send('refreshToken', { accountId: selectedRow.id }, {
-      pending: `${selectedRow.email} 토큰 갱신 중`,
-      done: `${selectedRow.email} 토큰 갱신함`,
+      pending: `토큰 갱신 중: ${selectedRow.email}`,
+      done: `토큰 갱신 완료: ${selectedRow.email}`,
     })
   }, [selectedRow, send, notify])
 
   const switchToSelected = useCallback(() => {
-    if (!selectedRow) return notify('계정을 고른 뒤 눌러 주세요')
+    if (!selectedRow) return notify('계정을 먼저 고르세요')
     return send('switch', { accountId: selectedRow.id }, {
-      pending: `${selectedRow.email} 로 옮기는 중`,
-      done: `${selectedRow.email} 로 전환`,
+      pending: `계정 전환 중: ${selectedRow.email}`,
+      done: `계정 전환 완료: ${selectedRow.email}`,
     })
   }, [selectedRow, send, notify])
 
   const toggleHidden = useCallback(() => {
-    if (!selectedRow) return notify('계정을 고른 뒤 눌러 주세요')
+    if (!selectedRow) return notify('계정을 먼저 고르세요')
     return send('setHidden', { accountId: selectedRow.id, hidden: !selectedRow.hidden }, {
-      done: selectedRow.hidden ? `${selectedRow.email} 다시 보임` : `${selectedRow.email} 숨김`,
+      done: selectedRow.hidden ? `숨김 해제: ${selectedRow.email}` : `숨김: ${selectedRow.email}`,
     })
   }, [selectedRow, send, notify])
 
@@ -413,7 +416,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   const doUpdate = useCallback(async () => {
     if (hello && hello.source !== 'launchd') {
       // 직접 띄운 백엔드는 받은 뒤 다시 뜨지 않아 화면이 붙을 곳을 잃는다.
-      notify('직접 띄운 백엔드는 여기서 업데이트하지 않습니다. 터미널에서 orca-usage update 뒤 다시 띄웁니다')
+      notify('수동 실행 백엔드는 여기서 업데이트하지 않습니다. 터미널에서 orca-usage update 뒤 다시 실행하세요')
       return
     }
     const info = snapshot?.update
@@ -423,15 +426,15 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
       if (!checked) return
       if (checked.available) {
         updateAt.current = Date.now()
-        notify(`업데이트 있음 ${checked.installed} -> ${checked.latest}. u 를 한 번 더 누르면 받고 다시 뜹니다`)
+        notify(`업데이트 있음 ${checked.installed} -> ${checked.latest}. u 를 한 번 더 누르면 받고 재시작합니다`)
       } else {
-        notify(checked.error ? `확인 못 함: ${checked.error}` : '이미 최신입니다')
+        notify(checked.error ? `업데이트 확인 실패: ${checked.error}` : '최신 버전입니다')
       }
       return
     }
     if (Date.now() - updateAt.current > CONFIRM_WINDOW_MS) {
       updateAt.current = Date.now()
-      notify(`업데이트 ${info.installed} -> ${info.latest}. u 를 한 번 더 누르면 받고 다시 뜹니다`)
+      notify(`업데이트 ${info.installed} -> ${info.latest}. u 를 한 번 더 누르면 받고 재시작합니다`)
       return
     }
     updateAt.current = 0
@@ -439,8 +442,8 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
       pending: '업데이트 받는 중',
       timeoutMs: 300_000,
       done: (applied) => (applied?.changed
-        ? `${applied.from} -> ${applied.to}. 백엔드가 다시 뜨면 화면도 다시 뜹니다`
-        : '받을 것이 없었습니다'),
+        ? `업데이트 ${applied.from} -> ${applied.to}. 백엔드 재시작 뒤 화면도 재시작합니다`
+        : '받을 업데이트 없음'),
     })
   }, [snapshot, hello, send, notify])
 
@@ -458,10 +461,19 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   /** 탭을 한 칸 옮긴다. 끝에서는 반대편으로 돈다. */
   const stepTab = useCallback((direction) => {
     setGraphMode((value) => {
-      const at = GRAPH_TABS.findIndex((tab) => tab.mode === value)
-      return GRAPH_TABS[(at + direction + GRAPH_TABS.length) % GRAPH_TABS.length].mode
+      const shown = wide && value === 'accounts' ? 'level' : value
+      const at = Math.max(0, tabs.findIndex((tab) => tab.mode === shown))
+      return tabs[(at + direction + tabs.length) % tabs.length].mode
     })
-  }, [])
+  }, [wide, tabs])
+
+  // 좁은 화면으로 켜면 목록부터 보인다. 넓은 화면의 첫 모습과 같은 것이 먼저다.
+  const placed = useRef(false)
+  useEffect(() => {
+    if (placed.current || !snapshot) return
+    placed.current = true
+    if (!wide) setGraphMode('accounts')
+  }, [snapshot, wide])
 
   // Ctrl+C 와 Esc 는 되묻는다. 둘 다 다른 일을 하다 손이 미끄러지기 쉬운 자리이고,
   // Esc 는 알 수 없는 이스케이프 시퀀스가 들어와도 눌린 것처럼 보인다.
@@ -474,12 +486,12 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     else if (key === 'X') setShowHidden((value) => !value)
     else if (key === 'o') {
       togglePolicy('keepAlive',
-        '창 미리 열기 켬. 닫힌 5h 와 7d 창을 요청 하나로 엽니다',
-        '창 미리 열기 끔. 안 쓰는 계정의 리셋 시계가 멈춥니다')
+        '창 미리 열기 켬: 닫힌 5h, 7d 창을 요청 하나로 엽니다',
+        '창 미리 열기 끔: 안 쓰는 계정의 리셋 시계가 멈춥니다')
     } else if (key === 'a') {
       togglePolicy('autoSwitch',
-        `자동 전환 켬. 활성이 ${policy?.tuning.switchAt}% 를 넘고 다른 곳이 ${policy?.tuning.switchMargin}%p 여유로우면 옮깁니다`,
-        '자동 전환 끔. 계정은 Enter 로 손수 옮깁니다')
+        `자동 전환 켬: 사용 중 계정이 ${policy?.tuning.switchAt}% 를 넘고 다른 계정이 ${policy?.tuning.switchMargin}%p 이상 여유로우면 전환합니다`,
+        '자동 전환 끔: 계정 전환은 Enter 로만 합니다')
     } else if (key === 'w') {
       setRangeIndex((value) => {
         const next = (value + 1) % RANGES.length
@@ -496,14 +508,17 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   const layout = useMemo(() => {
     // 상자 높이는 화면에 맞춘다. 내용만큼 커지게 두면 계정이 많을 때 상자가
     // 화면을 넘어 아래 테두리가 잘린 채로 남는다.
-    const panelHeight = Math.max(6, screenRows - HEADER_ROWS - 1)
+    const panelHeight = Math.max(6, screenRows - HEADER_ROWS - actionRows.length)
+    const graphHeight = Math.max(4, panelHeight - 2)
     return {
       panelWidth,
       panelHeight,
       // 그래프는 그 상자에서 테두리 두 줄을 뺀 만큼이다. 따로 재면 상자를 넘는다.
-      graphHeight: Math.max(4, panelHeight - 2),
+      graphHeight,
+      // 탭 줄과, 좁은 화면이면 대상 줄을 뺀 본문 높이.
+      bodyHeight: Math.max(3, graphHeight - 1 - (showTarget ? 1 : 0)),
     }
-  }, [panelWidth, screenRows])
+  }, [panelWidth, screenRows, actionRows.length, showTarget])
 
   useInput((input, key) => {
     // 마우스 리포팅을 켜 두면 클릭 좌표가 `[<0;100;12M` 같은 문자열로 여기
@@ -516,13 +531,18 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     }
     // 설정과 판정은 좌우로 값을 옮기는 화면이다. 그 좌우는 패널을 옮기는 키와
     // 같으므로, Enter 로 한 번 들어와야 값이 움직인다.
-    const tunes = graphMode === 'settings' || graphMode === 'score'
+    const tunes = mode === 'settings' || mode === 'score'
     const tuningNow = tunes && editing
     // 기록과 도움말은 한 화면에 다 안 들어간다. 위아래가 목록 대신 이쪽을 굴린다.
-    const logRows = logVisibleRows(layout.graphHeight - 1)
+    const logRows = logVisibleRows(layout.bodyHeight)
     const maxLog = Math.max(0, logEntries.length - logRows)
-    const helpBody = helpVisibleRows(layout.graphHeight - 1)
+    const helpBody = helpVisibleRows(layout.bodyHeight)
     const maxHelp = Math.max(0, helpRows(graphWidth).length - helpBody)
+    const maxDetail = mode === 'detail'
+      ? Math.max(0, detailLines({
+        row: selectedRow, rows, history, log: logEntries, now, staleAfterMs: intervalMs * 4,
+      }).length - layout.bodyHeight)
+      : 0
 
     if (key.escape || (key.ctrl && input === 'c')) {
       // 고치던 중이면 그것부터 닫는다. 종료를 되묻는 것은 그다음이다.
@@ -530,30 +550,30 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
       const at = Date.now()
       if (at - quitAt.current < CONFIRM_WINDOW_MS) return exit()
       quitAt.current = at
-      return notify('한 번 더 누르면 종료합니다. q 는 바로 끝냅니다')
+      return notify('한 번 더 누르면 종료합니다. q 는 바로 종료합니다')
     }
 
     /** 값을 고치는 화면이면 수정모드를 여닫고, 아니면 고른 계정으로 옮긴다. */
     const enter = () => {
       if (!tunes) return switchToSelected()
       setEditing((value) => {
-        if (!value) notify('수정 중입니다. 좌우로 값을 바꾸고 Enter 나 Esc 로 끝냅니다')
+        if (!value) notify('수정 중: 좌우로 값 변경, Enter 나 Esc 로 종료')
         return !value
       })
       return undefined
     }
     /** 값을 한 칸 옮긴다. 어느 화면인지에 따라 대상이 갈린다. */
-    const nudgeHere = (direction) => (graphMode === 'settings' ? nudge(direction) : nudgeWeight(direction))
+    const nudgeHere = (direction) => (mode === 'settings' ? nudge(direction) : nudgeWeight(direction))
     /** 위아래가 무엇을 옮기는지는 지금 보고 있는 패널이 정한다. */
     const step = (direction) => {
-      if (graphMode === 'settings') {
+      if (mode === 'settings') {
         return setTuneAt((at) => Math.min(SETTINGS_ROWS.length - 1, Math.max(0, at + direction)))
       }
-      if (graphMode === 'score') {
+      if (mode === 'score') {
         return setScoreAt((at) => Math.min(WEIGHT_KEYS.length - 1, Math.max(0, at + direction)))
       }
-      if (graphMode === 'log') return setLogAt((at) => Math.min(maxLog, Math.max(0, at + direction)))
-      if (graphMode === 'help') return setHelpAt((at) => Math.min(maxHelp, Math.max(0, at + direction)))
+      if (mode === 'log') return setLogAt((at) => Math.min(maxLog, Math.max(0, at + direction)))
+      if (mode === 'help') return setHelpAt((at) => Math.min(maxHelp, Math.max(0, at + direction)))
       return moveSelection(direction)
     }
 
@@ -561,7 +581,11 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     if (key.leftArrow) return tuningNow ? nudgeHere(-1) : stepTab(-1)
     if (key.rightArrow) return tuningNow ? nudgeHere(1) : stepTab(1)
     // 기록은 500건까지 쌓인다. 한 줄씩으로는 지난주에 닿지 못한다.
-    const page = graphMode === 'log' ? logRows : graphMode === 'help' ? helpBody : 1
+    const page = mode === 'log' ? logRows : mode === 'help' ? helpBody : 1
+    if (mode === 'detail' && (key.pageDown || key.pageUp)) {
+      const jump = Math.max(1, layout.bodyHeight - 1) * (key.pageDown ? 1 : -1)
+      return setDetailAt((at) => Math.min(maxDetail, Math.max(0, at + jump)))
+    }
     if (key.pageDown) return step(page)
     if (key.pageUp) return step(-page)
     if (key.downArrow) return step(1)
@@ -619,14 +643,16 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     // 구간이 차지하는 줄 수. 첫 행에는 늘 합계 블록이 붙고 안쪽은 provider 가
     // 바뀔 때 붙는다. 렌더가 그리는 규칙과 같아야 한다.
     const headRows = (index) => totalBarsHeight(totalRowsFor(rows[index].provider))
+    // 구간의 마지막 블록은 빈 줄 없이 그린다(AccountBlock 의 gap).
     const rowsIn = (start, end) => {
-      let sum = 0
+      let sum = -1
       for (let index = start; index < end; index += 1) {
         sum += blocks[index] + (index === start || isHead(index) ? headRows(index) : 0)
       }
       return sum
     }
-    const budget = layout.panelHeight - 2
+    // 좁은 화면에서는 목록이 탭 줄 아래에 선다.
+    const budget = layout.panelHeight - 2 - (wide ? 0 : 1)
       - adviceHeight(adviceCompact) - AUTO_BLOCK_ROWS
     if (rowsIn(0, count) <= budget) {
       viewStart.current = 0
@@ -649,7 +675,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     }
     viewStart.current = start
     return { start, end }
-  }, [rows, selected, totalRowsFor, adviceCompact, layout.panelHeight])
+  }, [rows, selected, totalRowsFor, adviceCompact, layout.panelHeight, wide])
 
   const onClick = useCallback((row, column) => {
     // 마우스는 1 부터 세고 배치 좌표는 0 부터 센다.
@@ -657,16 +683,18 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     // ink 의 overflow 는 그리기만 자르고 배치는 그대로라, 상자 밖으로 밀린 블록도
     // 좌표를 갖는다. 아래 테두리와 액션 바를 눌러 안 보이는 계정이 잡히면 안 된다.
     if (y >= layout.panelHeight - 1) return
-    if (column > layout.panelWidth) {
-      // 오른쪽 상자의 탭 줄. 자리는 재 둔 것을 쓴다. 테두리와 패딩을 세어 맞추면
-      // 상자 모양이 바뀔 때마다 어긋난다.
-      const tabs = hits.current.get(TAB_HIT)
-      if (!tabs || y < tabs.top || y >= tabs.top + tabs.height) return
-      const at = column - 1 - (listVisible ? layout.panelWidth + 2 : 2)
-      const tab = TAB_RANGES.find((range) => at >= range.start && at < range.end)
+    // 탭 줄. 행은 재 둔 것을 쓰고, 열은 탭 줄을 그린 것과 같은 계산(bars.js)으로
+    // 가른다. 테두리와 패딩을 세어 맞추면 상자 모양이 바뀔 때마다 어긋난다.
+    const tabRow = hits.current.get(TAB_HIT)
+    const tabBoxLeft = wide ? layout.panelWidth : 0
+    if (tabRow && y >= tabRow.top && y < tabRow.top + tabRow.height && column > tabBoxLeft) {
+      const at = column - 1 - tabBoxLeft - 2
+      const tab = tabView.items.find((range) => at >= range.start && at < range.end)
       if (tab) setGraphMode(tab.mode)
       return
     }
+    // 넓으면 목록은 왼쪽 상자에, 좁으면 계정 탭에만 있다.
+    if (wide ? column > layout.panelWidth : mode !== 'accounts') return
     for (const [id, box] of hits.current) {
       if (id === TAB_HIT) continue
       if (y >= box.top && y < box.top + box.height) {
@@ -674,7 +702,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
         return
       }
     }
-  }, [layout.panelWidth, layout.panelHeight, listVisible])
+  }, [layout.panelWidth, layout.panelHeight, wide, mode, tabView])
 
   useMouseReporting()
 
@@ -687,7 +715,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     return (
       <Box flexDirection="column" height={screenRows} width={columns}>
         {header}
-        <Text color="gray">{'  백엔드에 붙는 중입니다'}</Text>
+        <Text color="gray">{'  백엔드 연결 중'}</Text>
       </Box>
     )
   }
@@ -695,46 +723,31 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     return (
       <Box flexDirection="column" height={screenRows} width={columns}>
         {header}
-        <Text color="red">{'  Orca 계정을 찾지 못했습니다. Orca 에 로그인한 계정이 있는지 확인하세요'}</Text>
+        <Text color="red">{'  Orca 계정 없음. Orca 에 로그인한 계정이 있는지 확인하세요'}</Text>
       </Box>
     )
   }
 
-  return (
-    <Box flexDirection="column" height={screenRows} width={columns}>
-      {header}
-      <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">
-        {/* 왼쪽은 flexShrink 를 막는다. 오른쪽 내용이 길면 flex 가 이쪽을 눌러
-            막대와 이름이 잘리는데, 폭은 목록이 필요로 하는 만큼이라 내줄 자리가
-            없다. */}
-        {listVisible ? (
-        <Box
-          width={layout.panelWidth}
-          height={layout.panelHeight}
-          flexShrink={0}
-          flexDirection="column"
-          borderStyle="round"
-          borderColor={status === 'lost' ? 'yellow' : 'gray'}
-          paddingX={1}
-          overflow="hidden"
-        >
-          {rows.slice(view.start, view.end).map((row, offset) => {
-            const index = view.start + offset
-            return (
-            <React.Fragment key={row.id}>
-              {index === view.start || row.provider !== rows[index - 1]?.provider
-                ? (
-                  <Hit id={totalAt(row.provider)} onMeasure={onHit}>
-                    <TotalBars
-                      rows={totalRowsFor(row.provider)}
-                      label={PROVIDER_LABEL[row.provider] ?? row.provider}
-                      width={layout.panelWidth - 4}
-                      now={now}
-                      selected={selected === totalAt(row.provider)}
-                    />
-                  </Hit>
-                  )
-                : null}
+  // 계정 목록. 넓으면 왼쪽 상자에, 좁으면 '계정' 탭에 들어간다.
+  const listBody = (
+    <>
+      {rows.slice(view.start, view.end).map((row, offset) => {
+        const index = view.start + offset
+        return (
+          <React.Fragment key={row.id}>
+            {index === view.start || row.provider !== rows[index - 1]?.provider
+              ? (
+                <Hit id={totalAt(row.provider)} onMeasure={onHit}>
+                  <TotalBars
+                    rows={totalRowsFor(row.provider)}
+                    label={PROVIDER_LABEL[row.provider] ?? row.provider}
+                    width={panelWidth - 4}
+                    now={now}
+                    selected={selected === totalAt(row.provider)}
+                  />
+                </Hit>
+                )
+              : null}
             <Hit id={index} onMeasure={onHit}>
               <AccountBlock
                 row={row}
@@ -744,127 +757,139 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
                 now={now}
                 barWidth={barWidth}
                 staleAfterMs={intervalMs * 4}
+                gap={index !== view.end - 1}
               />
             </Hit>
-            </React.Fragment>
-            )
-          })}
-          <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
-            <Advice tip={tip} compact={adviceCompact} />
-            <AutoBlock
-              poll={snapshot.poll}
-              orcaConnected={snapshot.orca?.connected}
-              keepAlive={policy?.keepAlive}
-              autoSwitch={policy?.autoSwitch}
-              failures={recentFailures}
-              now={now}
-            />
-          </Box>
-        </Box>
-        ) : null}
+          </React.Fragment>
+        )
+      })}
+      <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
+        <Advice tip={tip} compact={adviceCompact} />
+        <AutoBlock
+          poll={snapshot.poll}
+          orcaConnected={snapshot.orca?.connected}
+          keepAlive={policy?.keepAlive}
+          autoSwitch={policy?.autoSwitch}
+          failures={recentFailures}
+          now={now}
+        />
+      </Box>
+    </>
+  )
 
-        {graphVisible ? (
+  const bodyHeight = layout.bodyHeight
+  const panelBody = mode === 'accounts'
+    ? listBody
+    : mode === 'score'
+      ? (
+        <Score
+          scored={scored}
+          activeId={activeIds.claude}
+          useId={tip?.use?.row.id}
+          decision={decision}
+          selected={scoreAt}
+          editing={editing}
+          height={bodyHeight}
+          columns={graphWidth}
+        />
+        )
+      : mode === 'settings'
+        ? (
+          <Settings
+            values={policy?.tuning ?? TUNING_DEFAULTS}
+            policy={policy}
+            selected={tuneAt}
+            editing={editing}
+            height={bodyHeight}
+            columns={graphWidth}
+          />
+          )
+        : mode === 'help'
+          ? <Help offset={helpAt} height={bodyHeight} columns={graphWidth} />
+          : mode === 'log'
+            ? <Log entries={logEntries} now={now} offset={logAt} height={bodyHeight} columns={graphWidth} />
+            : mode === 'detail'
+              ? (
+                <Details
+                  row={current}
+                  rows={rows}
+                  history={history}
+                  log={logEntries}
+                  now={now}
+                  height={bodyHeight}
+                  columns={graphWidth}
+                  staleAfterMs={intervalMs * 4}
+                  offset={detailAt}
+                />
+                )
+              : mode === 'schedule'
+                ? <Schedule rows={claudeRows} historyById={history} now={now} height={bodyHeight} columns={graphWidth} />
+                : current
+                  ? (
+                    <Graph
+                      row={current}
+                      history={history[current.id] ?? []}
+                      columns={graphWidth}
+                      height={bodyHeight}
+                      mode={mode}
+                      rangeMs={RANGES[rangeIndex].ms}
+                      rangeLabel={RANGES[rangeIndex].label}
+                      style={graphStyle}
+                    />
+                    )
+                  : (
+                    <OverviewGraph
+                      accounts={totalRowsFor(overviewProvider)}
+                      label={PROVIDER_LABEL[overviewProvider]}
+                      historyById={history}
+                      columns={graphWidth}
+                      height={bodyHeight}
+                      mode={mode}
+                      rangeMs={RANGES[rangeIndex].ms}
+                      rangeLabel={RANGES[rangeIndex].label}
+                      style={graphStyle}
+                    />
+                    )
+
+  const lostColor = status === 'lost' ? 'yellow' : null
+  return (
+    <Box flexDirection="column" height={screenRows} width={columns}>
+      {header}
+      <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">
+        {/* 왼쪽은 flexShrink 를 막는다. 오른쪽 내용이 길면 flex 가 이쪽을 눌러
+            막대와 이름이 잘리는데, 폭은 목록이 필요로 하는 만큼이라 내줄 자리가
+            없다. */}
+        {wide ? (
+          <Box
+            width={panelWidth}
+            height={layout.panelHeight}
+            flexShrink={0}
+            flexDirection="column"
+            borderStyle="round"
+            borderColor={lostColor ?? 'gray'}
+            paddingX={1}
+            overflow="hidden"
+          >
+            {listBody}
+          </Box>
+        ) : null}
         <Box
           flexGrow={1}
           height={layout.panelHeight}
           flexDirection="column"
           borderStyle="round"
-          borderColor="cyan"
+          borderColor={lostColor ?? 'cyan'}
           paddingX={1}
           overflow="hidden"
         >
           <Hit id={TAB_HIT} onMeasure={onHit}>
-            <GraphTabs mode={graphMode} width={graphWidth} />
+            <Tabs view={tabView} mode={mode} />
           </Hit>
-          {graphMode === 'score'
-            ? (
-              <Score
-                scored={scored}
-                activeId={activeIds.claude}
-                useId={tip?.use?.row.id}
-                decision={decision}
-                selected={scoreAt}
-                editing={editing}
-                height={layout.graphHeight - 1}
-                columns={graphWidth}
-              />
-              )
-            : graphMode === 'settings'
-            ? (
-              <Settings
-                values={policy?.tuning ?? TUNING_DEFAULTS}
-                policy={policy}
-                selected={tuneAt}
-                editing={editing}
-                height={layout.graphHeight - 1}
-                columns={graphWidth}
-              />
-              )
-            : graphMode === 'help'
-            ? <Help offset={helpAt} height={layout.graphHeight - 1} columns={graphWidth} />
-            : graphMode === 'log'
-            ? (
-              <Log
-                entries={logEntries}
-                now={now}
-                offset={logAt}
-                height={layout.graphHeight - 1}
-                columns={graphWidth}
-              />
-              )
-            : graphMode === 'detail'
-            ? (
-              <Details
-                row={current}
-                rows={rows}
-                history={history}
-                log={logEntries}
-                now={now}
-                height={layout.graphHeight - 1}
-                columns={graphWidth}
-                staleAfterMs={intervalMs * 4}
-              />
-              )
-            : graphMode === 'schedule'
-            ? (
-              <Schedule
-                rows={claudeRows}
-                historyById={history}
-                now={now}
-                height={layout.graphHeight - 1}
-                columns={graphWidth}
-              />
-              )
-            : (current
-                ? (
-                  <Graph
-                    row={current}
-                    history={history[current.id] ?? []}
-                    columns={graphWidth}
-                    height={layout.graphHeight - 1}
-                    mode={graphMode}
-                    rangeMs={RANGES[rangeIndex].ms}
-                    rangeLabel={RANGES[rangeIndex].label}
-                    style={graphStyle}
-                  />
-                  )
-                : (
-                  <OverviewGraph
-                    accounts={totalRowsFor(overviewProvider)}
-                    label={PROVIDER_LABEL[overviewProvider]}
-                    historyById={history}
-                    columns={graphWidth}
-                    height={layout.graphHeight - 1}
-                    mode={graphMode}
-                    rangeMs={RANGES[rangeIndex].ms}
-                    rangeLabel={RANGES[rangeIndex].label}
-                    style={graphStyle}
-                  />
-                  ))}
+          {showTarget ? <TargetLine row={current} provider={overviewProvider} /> : null}
+          {panelBody}
         </Box>
-        ) : null}
       </HitRoot>
-      <ActionBar updateAvailable={Boolean(snapshot.update?.available)} />
+      <ActionBar lines={actionRows} />
     </Box>
   )
 }

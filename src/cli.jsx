@@ -20,7 +20,7 @@ const fail = (text, code = 1) => {
 }
 const tilde = (file) => (file.startsWith(HOME) ? `~${file.slice(HOME.length)}` : file)
 const onOff = (value) => (value ? '켜짐' : '꺼짐')
-const SOURCE_LABEL = { launchd: 'launchd 가 띄움', manual: '직접 띄움' }
+const SOURCE_LABEL = { launchd: 'launchd 관리', manual: '수동 실행' }
 
 /**
  * 인자를 명령과 옵션으로 가른다. --graph 만 값을 받는다.
@@ -57,7 +57,7 @@ const NOTABLE = new Set(['switch', 'token', 'error'])
 function updateLine(update) {
   if (!update) return '아직 확인 전'
   if (update.available) return `${update.installed} -> ${update.latest} 받을 수 있음.  orca-usage update`
-  if (update.error) return `확인 못 함: ${update.error}`
+  if (update.error) return `확인 실패: ${update.error}`
   if (update.ahead) return `최신 (${update.installed}, push 안 한 커밋 ${update.ahead}개)`
   return `최신 (${update.installed ?? '?'})`
 }
@@ -107,7 +107,7 @@ async function statusCommand({ json = false } = {}) {
   out(`백엔드   실행 중  pid ${hello.pid}, ${shortSpan(now - hello.startedAt)}째, ${SOURCE_LABEL[hello.source] ?? hello.source}`)
   out(`버전     ${hello.version}`)
   out(`업데이트 ${updateLine(snapshot.update)}`)
-  out(`Orca     ${orca.connected ? '연결됨' : `연결 안 됨${orca.lastError ? ` (${orca.lastError})` : ''}, Claude 는 직접 조회`}`)
+  out(`Orca     ${orca.connected ? '연결됨' : `연결 없음${orca.lastError ? ` (${orca.lastError})` : ''}, Claude 는 직접 조회`}`)
   out(`조회     ${shortSpan(poll.intervalMs)} 주기, ${lastPoll}, ${next}`)
   out(`계정     Claude ${count('claude')}, Codex ${count('codex')}${hidden ? `, 숨김 ${hidden}` : ''}`)
   out(`정책     자동 전환 ${onOff(policy.autoSwitch)}, 창 미리 열기 ${onOff(policy.keepAlive)}, 알림 ${onOff(policy.notifications)}`)
@@ -119,7 +119,7 @@ async function statusCommand({ json = false } = {}) {
   if (launchd.registered) {
     out(`launchd  등록됨  ${tilde(PLIST_PATH)}`)
   } else {
-    out('launchd  등록 안 됨. 직접 띄운 백엔드라 그 터미널을 닫으면 사라집니다.  orca-usage daemon install')
+    out('launchd  등록 안 됨. 수동 실행 백엔드라 그 터미널을 닫으면 멈춥니다.  orca-usage daemon install')
   }
   out(`로그     ${tilde(DAEMON_LOG)}`)
 }
@@ -229,7 +229,7 @@ async function installDaemon({ showStatus = true } = {}) {
   // 으로 물러난다. 먼저 내린다.
   const hello = await answers()
   if (hello && hello.source !== 'launchd') {
-    out(`직접 띄운 백엔드(pid ${hello.pid})를 내립니다`)
+    out(`수동 실행 백엔드(pid ${hello.pid})를 중지합니다`)
     await call('shutdown')
     await waitForGone()
   }
@@ -259,7 +259,7 @@ async function uninstallDaemon() {
   if (hello) {
     await call('shutdown')
     await waitForGone()
-    out(`직접 띄운 백엔드(pid ${hello.pid})도 내렸습니다`)
+    out(`수동 실행 백엔드(pid ${hello.pid})도 중지했습니다`)
   }
   out(`상태와 기록은 남겨 둡니다: ${tilde(STATE_DIR)}, ${tilde(LOG_DIR)}`)
 }
@@ -269,13 +269,13 @@ async function restartDaemon() {
   if (!launchd.registered) {
     // 다시 띄우는 것은 launchd 의 일이다. 여기서 따로 띄우면 재부팅에 사라진다.
     return fail(before
-      ? '직접 띄운 백엔드는 여기서 다시 띄우지 않습니다. 그 터미널에서 다시 띄우거나 orca-usage daemon install 로 등록합니다'
+      ? '수동 실행 백엔드는 여기서 재시작하지 않습니다. 그 터미널에서 다시 실행하거나 orca-usage daemon install 로 등록하세요'
       : '백엔드가 launchd 에 등록돼 있지 않습니다. orca-usage daemon install 로 설치합니다', 3)
   }
   await kickstart()
   const after = await waitForBackend(20_000, { unless: (next) => Boolean(before) && next.pid === before.pid })
   if (!after) return fail('다시 뜨지 않았습니다. orca-usage daemon logs 로 이유를 봅니다')
-  out(`다시 떴습니다: pid ${after.pid}, ${after.version}, ${SOURCE_LABEL[after.source] ?? after.source}`)
+  out(`재시작 완료: pid ${after.pid}, ${after.version}, ${SOURCE_LABEL[after.source] ?? after.source}`)
 }
 
 async function stopDaemon() {
@@ -335,11 +335,11 @@ async function updateCommand() {
   if (!result.changed) return out('받을 것이 없었습니다')
   if (hello.source !== 'launchd') {
     // 직접 띄운 백엔드는 받은 뒤 끝나고 다시 뜨지 않는다. 다시 띄울 것이 없다.
-    return out(`${result.from} -> ${result.to}. 직접 띄운 백엔드라 그 터미널에서 다시 띄웁니다`)
+    return out(`${result.from} -> ${result.to}. 수동 실행 백엔드라 그 터미널에서 다시 실행하세요`)
   }
   const after = await waitForBackend(60_000, { unless: (next) => next.pid === hello.pid })
   if (!after) return fail('받았지만 새 백엔드가 답하지 않습니다. orca-usage daemon logs 로 이유를 봅니다')
-  out(`${result.from} -> ${result.to}. 백엔드가 새 코드로 떴습니다 (pid ${after.pid})`)
+  out(`${result.from} -> ${result.to}. 백엔드 재시작 완료 (pid ${after.pid})`)
 }
 
 // ---- 버전 ---------------------------------------------------------------
