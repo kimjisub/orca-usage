@@ -1,6 +1,11 @@
 import net from 'node:net'
 import { frame, lineReader } from './protocol.js'
 
+// 한 연결에 보내지 못하고 쌓인 바이트의 상한. 화면이 Ctrl+Z 로 멈췄거나 터미널이
+// 출력을 안 읽어 멈추면 소켓을 안 읽고, 그동안 state 가 여기 쌓인다. 넘으면
+// 끊는다. 화면은 끊기면 다시 붙어 그때의 상태를 새로 받는다(ui/useBackend.js).
+export const MAX_PENDING_BYTES = 8 * 1024 * 1024
+
 /**
  * 엔진을 소켓에 연다. 요청은 엔진의 메서드로 옮기고, 엔진이 낸 state 와 log 를
  * 구독한 연결에 흘려보낸다.
@@ -11,7 +16,7 @@ import { frame, lineReader } from './protocol.js'
  * @param {import('../engine/engine.js').Engine} engine
  * @param {{hello: () => object, onShutdown: () => void}} options
  */
-export function createServer(engine, { hello, onShutdown }) {
+export function createServer(engine, { hello, onShutdown, maxPending = MAX_PENDING_BYTES }) {
   const clients = new Set()
 
   const handlers = {
@@ -40,7 +45,14 @@ export function createServer(engine, { hello, onShutdown }) {
   }
 
   const send = (client, payload) => {
-    if (!client.socket.destroyed) client.socket.write(frame(payload))
+    const { socket } = client
+    if (socket.destroyed) return
+    if (socket.writableLength > maxPending) {
+      clients.delete(client)
+      socket.destroy()
+      return
+    }
+    socket.write(frame(payload))
   }
 
   const broadcast = (event, data) => {

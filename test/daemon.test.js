@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { connect } from '../src/client/connection.js'
 import { acquirePid, releasePid } from '../src/daemon/instance.js'
+import { lineReader } from '../src/daemon/protocol.js'
 import { createServer } from '../src/daemon/server.js'
 
 let dir
@@ -29,9 +30,9 @@ function fakeEngine() {
   return engine
 }
 
-async function serve(engine, onShutdown = () => {}) {
+async function serve(engine, onShutdown = () => {}, options = {}) {
   const socketPath = path.join(dir, 'd.sock')
-  const server = createServer(engine, { hello: () => ({ protocol: 1, pid: 42 }), onShutdown })
+  const server = createServer(engine, { hello: () => ({ protocol: 1, pid: 42 }), onShutdown, ...options })
   await new Promise((resolve) => server.listen(socketPath, resolve))
   return { server, socketPath }
 }
@@ -107,6 +108,42 @@ describe('소켓 서버', () => {
     expect(down).toBe(true)
     connection.close()
     server.close()
+  })
+})
+
+describe('밀린 연결과 긴 줄', () => {
+  test('소켓을 안 읽는 구독자는 쌓인 것이 한도를 넘으면 끊는다', async () => {
+    const engine = fakeEngine()
+    const { server, socketPath } = await serve(engine, () => {}, { maxPending: 64 * 1024 })
+    const raw = net.createConnection(socketPath)
+    await new Promise((resolve) => raw.once('connect', resolve))
+    raw.write(`${JSON.stringify({ id: 1, method: 'subscribe' })}\n`)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    // Ctrl+Z 로 멈춘 화면처럼 더는 읽지 않는다.
+    raw.pause()
+    const closed = new Promise((resolve) => raw.once('close', resolve))
+    const big = { blob: 'x'.repeat(256 * 1024) }
+    for (let i = 0; i < 64; i += 1) {
+      engine.emit('state', big)
+      await new Promise((resolve) => setTimeout(resolve, 1))
+    }
+    raw.resume()
+    await closed
+    expect(engine.listenerCount('state')).toBe(1)
+    server.close()
+  })
+
+  test('개행 없이 한도를 넘는 줄은 버리고 다음 줄부터 읽는다', () => {
+    const got = []
+    const bad = []
+    const read = lineReader((message) => got.push(message), (line) => bad.push(line), { maxLine: 16 })
+    read('{"a":1}\n')
+    read('y'.repeat(20))
+    read('y'.repeat(20))
+    read('끝\n{"b":2}\n')
+    expect(got).toEqual([{ a: 1 }, { b: 2 }])
+    // 한도를 넘은 순간 그때까지 받은 것만 넘기고 비운다. 나머지는 쌓지 않는다.
+    expect(bad).toEqual(['y'.repeat(20)])
   })
 })
 
