@@ -78,6 +78,8 @@ export class Engine extends EventEmitter {
     this.refreshPrint = new Map()
     // 발급처가 리프레시 토큰을 폐기했다고 답한 시각. 새 토큰이 보이면 지운다.
     this.refreshRevokedAt = new Map()
+    // 리프레시 토큰의 만료. Claude 만 키체인에 있고 Codex 는 알 수 없다.
+    this.refreshExpiry = new Map()
   }
 
   /**
@@ -85,7 +87,8 @@ export class Engine extends EventEmitter {
    * 액세스 토큰이 새로 나온 것이고, 지문이 바뀌었으면 리프레시 토큰이 교체된
    * 것이다. 처음 읽은 값은 비교할 것이 없어 교체 시각을 모른다.
    */
-  observeToken(accountId, { expiresAt, refresh }, now = this.now()) {
+  observeToken(accountId, { expiresAt, refresh, refreshExpiresAt = null }, now = this.now()) {
+    this.refreshExpiry.set(accountId, refreshExpiresAt)
     const previous = this.expiry.get(accountId)
     if (previous != null && expiresAt != null && expiresAt > previous) this.accessRenewedAt.set(accountId, now)
     this.expiry.set(accountId, expiresAt)
@@ -383,7 +386,11 @@ export class Engine extends EventEmitter {
     try {
       this.observeToken(accountId, await this.ports.keychain.peekToken(accountId), now)
     } catch {
-      this.observeToken(accountId, { expiresAt, refresh: this.refreshPrint.get(accountId)?.print ?? null }, now)
+      this.observeToken(accountId, {
+        expiresAt,
+        refresh: this.refreshPrint.get(accountId)?.print ?? null,
+        refreshExpiresAt: this.refreshExpiry.get(accountId) ?? null,
+      }, now)
     }
   }
 
@@ -409,6 +416,7 @@ export class Engine extends EventEmitter {
       present: seen ? Boolean(seen.print) : null,
       rotatedAt: seen?.rotatedAt ?? null,
       revokedAt: this.refreshRevokedAt.get(row.id) ?? null,
+      expiresAt: this.refreshExpiry.get(row.id) ?? null,
     }
     if (row.provider === 'codex') {
       const info = this.codexTokens.get(row.id)

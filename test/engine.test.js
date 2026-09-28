@@ -37,7 +37,7 @@ describe('재인증', () => {
     await engine.cycle()
     let token = engine.snapshot().accounts[0].token
     // 처음 읽은 값은 견줄 것이 없어 언제 바뀌었는지 모른다.
-    expect(token.refresh).toEqual({ present: true, rotatedAt: null, revokedAt: null })
+    expect(token.refresh).toEqual({ present: true, rotatedAt: null, revokedAt: null, expiresAt: null })
     expect(token.renewedAt).toBe(null)
 
     advance(10 * 60_000)
@@ -47,6 +47,14 @@ describe('재인증', () => {
     token = engine.snapshot().accounts[0].token
     expect(token.renewedAt).toBe(now())
     expect(token.refresh.rotatedAt).toBe(now())
+  })
+
+  test('키체인의 refresh token 만료를 상태에 싣는다', async () => {
+    const { engine, state } = setup({ accounts: [claudeAccount('a', 1)], usage: { a: limits(T0) }, expiry: { a: T0 + HOUR } })
+    state.refreshExpiry.a = T0 + 3 * 24 * HOUR
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    expect(engine.snapshot().accounts[0].token.refresh.expiresAt).toBe(T0 + 3 * 24 * HOUR)
   })
 
   test('발급처가 폐기했다고 답하면 폐기 시각을 남기고, 새 리프레시 토큰이 보이면 지운다', async () => {

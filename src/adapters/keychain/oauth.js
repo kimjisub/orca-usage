@@ -26,7 +26,7 @@ function timeout(ms) {
  * fatal 은 사람이 Orca 에서 다시 로그인해야 풀리는 실패다. 네트워크가 끊겼거나
  * 서버가 5xx 를 준 것은 다음 조회에 나을 수 있으므로 여기 들지 않는다.
  */
-async function refreshCredentials(payload) {
+export async function refreshCredentials(payload) {
   let data
   try {
     data = JSON.parse(payload)
@@ -34,7 +34,7 @@ async function refreshCredentials(payload) {
     return { payload, error: '자격증명 형식 이상', fatal: true }
   }
   const oauth = data.claudeAiOauth
-  if (!oauth?.refreshToken) return { payload, error: '리프레시 토큰 없음', fatal: true }
+  if (!oauth?.refreshToken) return { payload, error: 'refresh token 없음', fatal: true }
 
   const guard = timeout(HTTP_TIMEOUT_MS)
   let response
@@ -61,7 +61,7 @@ async function refreshCredentials(payload) {
       marker = JSON.parse(await response.text()).error
     } catch { /* 본문이 JSON 이 아니면 코드로만 판단한다 */ }
     if (marker === 'invalid_grant') {
-      return { payload, error: '리프레시 토큰 폐기됨 (Orca 에서 재로그인이 필요합니다)', fatal: true, revoked: true }
+      return { payload, error: 'refresh token 폐기됨 (Orca 에서 재로그인이 필요합니다)', fatal: true, revoked: true }
     }
     if (marker === 'invalid_client') return { payload, error: '클라이언트 거부됨', fatal: true }
     return { payload, error: `갱신 실패 HTTP ${response.status}` }
@@ -71,7 +71,14 @@ async function refreshCredentials(payload) {
   if (!granted.access_token) return { payload, error: '갱신 응답에 토큰 없음' }
   oauth.accessToken = granted.access_token
   oauth.expiresAt = Date.now() + (granted.expires_in ?? 0) * 1000
-  if (granted.refresh_token) oauth.refreshToken = granted.refresh_token
+  if (granted.refresh_token) {
+    oauth.refreshToken = granted.refresh_token
+    // Claude Code 는 응답의 refresh_token_expires_in 으로 이 값을 적는다(2.1.283 에서
+    // 확인). 새 토큰에 옛 만료를 붙여 두면 틀린 날짜가 남으므로, 응답에 없으면 지운다.
+    const lifetime = Number(granted.refresh_token_expires_in)
+    if (lifetime > 0) oauth.refreshTokenExpiresAt = Date.now() + lifetime * 1000
+    else delete oauth.refreshTokenExpiresAt
+  }
   if (granted.scope) oauth.scopes = granted.scope.split(' ')
   data.claudeAiOauth = oauth
   return { payload: JSON.stringify(data), error: null }

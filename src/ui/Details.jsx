@@ -23,21 +23,25 @@ function when(at, now) {
   return at > now ? `${clock} (${shortSpan(at - now)} 뒤)` : `${clock} (${shortSpan(now - at)} 전)`
 }
 
+// 이만큼 남으면 노랗게 알린다. access token 은 Orca 가 곧 갱신하고, refresh token 은
+// 지나면 Orca 에서 다시 로그인해야 하므로 며칠 앞서 보여야 한다.
+const SOON = { access: 30 * 60_000, refresh: 3 * DAY_MS }
+
 /** 토큰이 얼마나 남았나. 이미 만료됐으면 얼마나 지났나. 색도 함께 정한다. */
-function expiryLine(expiresAt, now) {
+function expiryLine(expiresAt, now, soon = SOON.access) {
   if (!expiresAt) return { text: '모름', color: 'gray' }
   const left = expiresAt - now
   if (left <= 0) return { text: `만료됨, ${clockAt(expiresAt, { withDate: true })} (${shortSpan(-left)} 경과)`, color: 'red' }
   return {
     text: `${clockAt(expiresAt, { withDate: left > 12 * 3_600_000 })} (${shortSpan(left)} 남음)`,
-    color: left < 30 * 60_000 ? 'yellow' : 'white',
+    color: left < soon ? 'yellow' : 'white',
   }
 }
 
 /** 표 한 칸에 들어갈 짧은 만료. */
-function expiryCell(expiresAt, now) {
+function expiryCell(expiresAt, now, soon = SOON.access) {
   if (!expiresAt) return { text: '모름', color: 'gray' }
-  const expiry = expiryLine(expiresAt, now)
+  const expiry = expiryLine(expiresAt, now, soon)
   const left = expiresAt - now
   return { text: left <= 0 ? `만료 (${shortSpan(-left)} 경과)` : `${shortSpan(left)} 남음`, color: expiry.color }
 }
@@ -47,7 +51,7 @@ const OWNER_LABEL = {
   backend: 'orca-usage 백엔드 (만료 후 1시간 경과)',
 }
 
-/** 리프레시 토큰의 상태. 발급처가 폐기했다고 답했으면 그것이 먼저다. */
+/** refresh token 의 상태. 발급처가 폐기했다고 답했으면 그것이 먼저다. */
 function refreshState(refresh) {
   if (!refresh || refresh.present == null) return { text: '확인 전', color: 'gray' }
   if (refresh.revokedAt) return { text: '폐기됨 (Orca 재로그인 필요)', color: 'red' }
@@ -85,7 +89,7 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
 
   const token = row.token
   const codex = token?.source === 'codex-auth'
-  title('액세스 토큰')
+  title('Access token')
   if (!token) {
     item('만료', '읽기 실패', 'gray')
   } else {
@@ -105,13 +109,19 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
     item('확인 시각', `${when(token.checkedAt, now)}, ${codex ? 'auth.json' : '키체인'}`, 'gray')
   }
 
-  title('리프레시 토큰')
+  title('Refresh token')
   if (token) {
     const state = refreshState(token.refresh)
     item('상태', state.text, state.color)
+    if (codex) {
+      // Codex 의 refresh token 은 만료를 담지 않은 불투명 값이고 auth.json 에도 없다.
+      item('만료', '알 수 없음 (Codex 가 만료 정보를 주지 않음)', 'gray')
+    } else {
+      const expiry = expiryLine(token.refresh?.expiresAt, now, SOON.refresh)
+      item('만료', token.refresh?.expiresAt ? expiry.text : '모름 (키체인에 값 없음)', expiry.color)
+    }
     const rotated = token.refresh?.rotatedAt
     item('교체 시각', rotated ? when(rotated, now) : '백엔드 시작 이후 없음', rotated ? 'white' : 'gray')
-    item('만료', '발급처 비공개', 'gray')
   } else {
     item('상태', '읽기 실패', 'gray')
   }
@@ -139,11 +149,15 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
 /** 합계 줄을 골랐을 때. 계정마다 한 줄로 값의 나이와 토큰 만료를 견준다. */
 function overviewLines(rows, now) {
   const lines = [{ heading: '전체 계정', sub: '계정 선택 시 계정별 상세' }]
-  lines.push({ header: true, text: `${pad('계정', 30)}${pad('사용량 조회', 14)}${pad('액세스 토큰', 16)}리프레시 토큰` })
+  lines.push({ header: true, text: `${pad('계정', 30)}${pad('사용량 조회', 14)}${pad('Access token', 16)}Refresh token` })
   for (const row of rows) {
     const got = row.fetchedAt ? `${shortSpan(now - row.fetchedAt)} 전` : '조회 전'
     const access = expiryCell(row.token?.expiresAt, now)
-    const refresh = row.token ? refreshState(row.token.refresh) : { text: '확인 전', color: 'gray' }
+    const state = row.token ? refreshState(row.token.refresh) : { text: '확인 전', color: 'gray' }
+    // 문제가 있으면 상태를, 없으면 남은 기간을 적는다. 남은 기간을 모르면 상태(있음)다.
+    const refresh = state.color === 'white' && row.token.refresh?.expiresAt
+      ? expiryCell(row.token.refresh.expiresAt, now, SOON.refresh)
+      : { text: state.text.split(' (')[0], color: state.color }
     const name = `${row.index} ${row.email}`
     lines.push({
       table: true,
@@ -151,7 +165,7 @@ function overviewLines(rows, now) {
         { text: pad(name.length > 28 ? `${name.slice(0, 27)}.` : name, 30), color: row.active ? 'white' : 'gray' },
         { text: pad(got, 14), color: 'white' },
         { text: pad(access.text, 16), color: access.color },
-        { text: refresh.text.split(' (')[0], color: refresh.color },
+        { text: refresh.text, color: refresh.color },
       ],
     })
   }

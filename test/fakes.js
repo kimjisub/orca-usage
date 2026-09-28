@@ -38,6 +38,7 @@ export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {},
     active: { claude: null, codex: null, ...active },
     expiry: { ...expiry },
     refresh: {},
+    refreshExpiry: {},
     policy: {
       autoSwitch: false, keepAlive: false, notifications: true, tuning: {}, hiddenIds: [], lastSwitchAt: 0,
       ...policy,
@@ -79,7 +80,11 @@ export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {},
       normalize: (data) => data,
       peekToken: async (id) => {
         calls.peek.push(id)
-        return { expiresAt: state.expiry[id] ?? null, refresh: state.refresh[id] ?? `r-${id}` }
+        return {
+          expiresAt: state.expiry[id] ?? null,
+          refresh: state.refresh[id] ?? `r-${id}`,
+          refreshExpiresAt: state.refreshExpiry[id] ?? null,
+        }
       },
       refresh: async (id) => {
         calls.refresh.push(id)

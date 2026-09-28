@@ -26,8 +26,8 @@
  * @property {(accountId: string, options: object) => Promise<object>} ensureToken
  * @property {(token: string) => Promise<{data: object|null, error: string|null, retryAfter: number|null}>} fetchUsage
  * @property {(data: object) => {windows: object[]}} normalize
- * @property {(accountId: string) => Promise<{expiresAt: number|null, refresh: string|null}>} peekToken
- *   액세스 토큰의 만료와 리프레시 토큰의 지문(core/fingerprint.js). 갱신하지 않는다
+ * @property {(accountId: string) => Promise<{expiresAt: number|null, refresh: string|null, refreshExpiresAt: number|null}>} peekToken
+ *   액세스 토큰의 만료, 리프레시 토큰의 지문(core/fingerprint.js)과 만료. 갱신하지 않는다
  * @property {(accountId: string) => Promise<{refreshed: boolean, expiresAt: number|null, note: string|null, authFailed: boolean, revoked: boolean}>} refresh
  * @property {(accountId: string) => Promise<{ok: boolean, reason?: string, refreshed?: boolean}>} openWindow
  *
