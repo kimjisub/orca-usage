@@ -105,9 +105,11 @@ How it fetches depends on how it was installed:
 
 | Installed with | Checks against | Fetches with |
 | --- | --- | --- |
-| `bun add -g` (the one-liner) | the latest commit on GitHub | `bun add -g github:kimjisub/orca-usage` |
+| `bun add -g` (the one-liner) | the latest commit on GitHub | `bun update -g orca-usage` |
 | a clone | its upstream branch, after `git fetch` | `git pull --ff-only`, `bun install` |
 | bunx, no install | nothing; bunx fetches on its own | nothing |
+
+A copy installed before 2026-09-28 cannot update itself: its updater ran `bun add -g` again, which keeps the installed commit. Run `bun update -g orca-usage` once, then `orca-usage daemon restart`.
 
 A clone only counts as behind when its HEAD is an ancestor of upstream. A working copy with commits not yet pushed is left alone, and `status` says how many there are.
 

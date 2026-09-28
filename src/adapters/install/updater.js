@@ -18,6 +18,11 @@ export function repoSlug(root = PACKAGE_ROOT) {
   }
 }
 
+/** package.json 의 이름. bun update -g 가 이 이름으로 찾는다. */
+function packageName(root) {
+  return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).name
+}
+
 /** 기본 브랜치의 최신 커밋. GitHub API 는 이 Accept 로 sha 한 줄만 준다. */
 async function latestOnGitHub(slug) {
   const controller = new AbortController()
@@ -39,7 +44,10 @@ const git = (root, args, timeout = 30_000) => run('git', ['-C', root, ...args], 
 /**
  * 설치 방식에 맞게 업데이트를 확인하고 받는다.
  *
- *   global  GitHub 의 최신 커밋과 .bun-tag 를 비교하고, bun add -g 로 다시 받는다
+ *   global  GitHub 의 최신 커밋과 .bun-tag 를 비교하고, bun update -g 로 다시 받는다.
+ *           bun add -g 는 같은 github: 주소가 이미 깔려 있으면 lockfile 대로 두고
+ *           아무것도 안 받는다. 커밋을 붙인 주소(#sha)는 bun 1.3 이 DependencyLoop
+ *           로 실패한다
  *   clone   git fetch 뒤 HEAD 가 원격 브랜치의 조상이고 서로 다를 때만 받을 것이
  *           있다고 본다. push 안 한 커밋이 있는 개발 중인 clone 을 업데이트
  *           대상으로 읽지 않기 위해서다. git pull --ff-only 와 bun install 로 받는다
@@ -83,7 +91,14 @@ export function createUpdater({ root = PACKAGE_ROOT, bunPath = process.execPath 
   async function apply() {
     const from = installedCommit(root, mode)
     if (mode === 'global') {
-      await run(bunPath, ['add', '-g', `github:${slug}`], { timeout: 180_000 })
+      const latest = (await latestOnGitHub(slug)).slice(0, 7)
+      if (from && latest.startsWith(from)) return { from, to: from, changed: false }
+      await run(bunPath, ['update', '-g', packageName(root)], { timeout: 180_000 })
+      const to = installedCommit(root, mode)
+      // 받았다고 끝났는데 커밋이 그대로면 bun 이 새로 받지 않은 것이다. 조용히
+      // "받을 것이 없었다" 로 넘기면 옛 코드가 계속 돈다.
+      if (to === from) throw new Error(`${latest} 이 있는데 bun 이 받지 않았습니다. bun update -g ${packageName(root)} 를 직접 실행해 보세요`)
+      return { from, to, changed: true }
     } else if (mode === 'clone') {
       await git(root, ['pull', '--ff-only', '--quiet'], 60_000)
       await run(bunPath, ['install'], { cwd: root, timeout: 180_000 })
