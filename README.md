@@ -99,7 +99,7 @@ orca-usage update
 
 Or press `u` in the screen, then `u` again within three seconds.
 
-The backend checks on start and every six hours, and the screen's header shows `업데이트 있음 (u)` when there is something to fetch. Updating is the backend's job either way: it fetches the new code, then comes back on it. Under launchd it exits with code 75 and launchd starts it again. The screen reconnects to the new backend and then restarts itself, so the two never run different versions for long. `orca-usage update` prints the move, for example `f59de91 -> 8047102`.
+The backend checks on start and every six hours, and the screen's header shows `업데이트 있음 (u)` when there is something to fetch. Updating is the backend's job either way: it fetches the new code, then comes back on it. Under launchd it exits with code 75 and launchd starts it again. A screen reconnects to the new backend and restarts itself on the new code whenever the backend comes back on a different version, whether the update came from the screen, `orca-usage update` or `orca-usage daemon restart`. So the two never run different versions for long. `orca-usage update` prints the move, for example `f59de91 -> 8047102`.
 
 How it fetches depends on how it was installed:
 

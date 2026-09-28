@@ -17,6 +17,7 @@ import { SETTINGS_ROWS, Settings } from './Settings.jsx'
 import { Help, helpRows, helpVisibleRows } from './Help.jsx'
 import { Score } from './Score.jsx'
 import { Details } from './Details.jsx'
+import { needsScreenRestart } from './follow-backend.js'
 
 const HEADER_ROWS = 2
 // 종료와 업데이트를 되묻는 시간. 이 안에 다시 누르면 한다.
@@ -409,7 +410,6 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
    * 화면도 새 코드로 다시 뜬다. 받을 것이 없다고 알고 있으면 지금 다시 확인한다.
    */
   const updateAt = useRef(0)
-  const updatingFrom = useRef(null)
   const doUpdate = useCallback(async () => {
     if (hello && hello.source !== 'launchd') {
       // 직접 띄운 백엔드는 받은 뒤 다시 뜨지 않아 화면이 붙을 곳을 잃는다.
@@ -435,21 +435,21 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
       return
     }
     updateAt.current = 0
-    updatingFrom.current = hello?.pid ?? null
-    const result = await send('update', {}, {
+    await send('update', {}, {
       pending: '업데이트 받는 중',
       timeoutMs: 300_000,
       done: (applied) => (applied?.changed
         ? `${applied.from} -> ${applied.to}. 백엔드가 다시 뜨면 화면도 다시 뜹니다`
         : '받을 것이 없었습니다'),
     })
-    if (!result?.changed) updatingFrom.current = null
   }, [snapshot, hello, send, notify])
 
-  // 업데이트 뒤 새 백엔드에 다시 붙으면 화면도 새 코드로 다시 뜬다.
+  // 백엔드가 다른 버전으로 바뀌면 화면도 새 코드로 다시 뜬다(follow-backend.js).
+  const firstVersion = useRef(null)
   useEffect(() => {
-    if (updatingFrom.current && hello && hello.pid !== updatingFrom.current) {
-      updatingFrom.current = null
+    if (!hello) return
+    firstVersion.current ??= hello.version
+    if (needsScreenRestart(firstVersion.current, hello.version, SCREEN_VERSION)) {
       onRestart()
       exit()
     }
