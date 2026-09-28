@@ -81,8 +81,15 @@ const authFileFor = (accountId) => (accountId
  * 토큰이 살아 있는지와 상관이 없다(실측 2026-09-25: access_token 은 238시간
  * 남았는데 id_token 은 이미 만료). last_refresh 는 Codex 나 Orca 가 마지막으로
  * 토큰을 갱신한 시각이다. 리프레시 토큰은 지문만 꺼낸다(core/fingerprint.js).
+ * id_token 의 auth_time 은 브라우저로 로그인한 시각이다. 갱신해도 바뀌지 않는다
+ * (실측 2026-09-28: 9/16 로그인 계정의 9/25 갱신 토큰이 auth_time 9/16 을 유지).
  *
- * @returns {{planType: string|null, expiresAt: number|null, refreshedAt: number|null, refresh: string|null}|null}
+ * refresh token 의 기한은 없다. 토큰에도 auth.json 에도 없고 OpenAI 문서도
+ * 기한을 밝히지 않는다. 문서가 말하는 것은 쓰는 동안 Codex 가 갱신해 이어진다는
+ * 것과, refresh token 이 1회용이라 두 곳이 같은 것으로 갱신하면 한쪽이 끊긴다는
+ * 것이다. 그래서 이 도구는 Codex 토큰을 갱신하지 않고 읽기만 한다.
+ *
+ * @returns {{planType: string|null, expiresAt: number|null, refreshedAt: number|null, refresh: string|null, loginAt: number|null}|null}
  */
 export function readCodexAuth(file) {
   let auth
@@ -99,6 +106,7 @@ export function readCodexAuth(file) {
     expiresAt: typeof access?.exp === 'number' ? access.exp * 1000 : null,
     refreshedAt: Number.isFinite(refreshedAt) ? refreshedAt : null,
     refresh: fingerprintOf(auth?.tokens?.refresh_token),
+    loginAt: typeof identity?.auth_time === 'number' ? identity.auth_time * 1000 : null,
   }
 }
 
@@ -120,5 +128,7 @@ export function codexPlanLabel(accountId, workspaceLabel = null) {
  */
 export function codexTokenInfo(accountId) {
   const auth = readCodexAuth(authFileFor(accountId))
-  return auth ? { expiresAt: auth.expiresAt, refreshedAt: auth.refreshedAt, refresh: auth.refresh } : null
+  return auth
+    ? { expiresAt: auth.expiresAt, refreshedAt: auth.refreshedAt, refresh: auth.refresh, loginAt: auth.loginAt }
+    : null
 }

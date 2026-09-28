@@ -213,6 +213,13 @@ Which account to be on is not marked on the rows themselves; the recommendation 
 
 Always on. Orca refreshes tokens only for the accounts it is using, so idle ones sit expired; once a Claude token has been expired for an hour, the backend treats it as abandoned and refreshes it. It reads every Claude token's expiry from the keychain on each poll, since Orca refreshes the active account before it expires and a remembered value goes stale within hours; the 상세 tab shows when it was read. After a failed refresh it backs off for 30 minutes. A live token is Orca's to rotate, since two writers rotating one refresh token leave the other revoked.
 
+### Refresh token deadlines
+
+Refreshing renews the access token and rotates the refresh token, but it cannot move the refresh token's deadline.
+
+- **Claude.** The deadline is set at browser login, about 30 days later, and the token endpoint only reports the time left (`refresh_token_expires_in`). Refreshing an idle account on 2026-09-28 left `refreshTokenExpiresAt` on the same second. This is Anthropic's OAuth, so plain Claude Code without Orca needs the same monthly login ([anthropics/claude-code#83464](https://github.com/anthropics/claude-code/issues/83464): login 7/22, deadline 8/21). The backend warns three days, one day and six hours before, and at the deadline, with a log entry and a macOS notification; the screen shows `재로그인 필요` in the header and next to the account. Logging in again in Orca sets a new deadline.
+- **Codex.** No deadline is published or stored: the refresh token is opaque and `auth.json` has none. Codex refreshes while in use, and OpenAI's docs say active sessions continue without another browser login. Refresh tokens are single-use, so two clients refreshing the same one log one of them out; orca-usage only reads Codex tokens. The 상세 tab shows the browser login time (`auth_time` in the id token), which refreshing does not change.
+
 ### Automatic switching
 
 Off by default; `a` turns it on, and it only moves between Claude accounts. When the tightest window on the active account passes 80% and another account is more than 15 percentage points freer, the backend asks the Orca runtime to switch. Hidden accounts are never a target. After a switch, manual or automatic, it waits 10 minutes before switching again; that time survives restarts.

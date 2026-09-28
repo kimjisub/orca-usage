@@ -95,12 +95,15 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
     item('만료', '읽기 실패', 'gray')
   } else {
     const expiry = expiryLine(token.expiresAt, now)
-    item('만료', expiry.text, expiry.color)
+    // Codex 는 만료된 access token 을 다음 사용 때 스스로 갱신한다. 쓰지 않는 동안
+    // 만료돼 있는 것은 정상이라 빨갛게 두지 않는다.
+    const codexIdle = codex && token.expiresAt && token.expiresAt <= now
+    item('만료', codexIdle ? `${expiry.text}, 다음 사용 때 Codex 가 갱신` : expiry.text, codexIdle ? 'yellow' : expiry.color)
     const by = token.renewedBy === 'backend' ? ', orca-usage 백엔드' : token.renewedBy === 'other' ? ', Orca' : ''
     item('갱신 시각', token.renewedAt ? `${when(token.renewedAt, now)}${by}` : (codex ? '모름' : '백엔드 시작 이후 없음'),
       token.renewedAt ? 'white' : 'gray')
     if (codex) {
-      item('갱신 주체', 'Orca 또는 Codex (orca-usage 는 읽기만 함)', 'gray')
+      item('갱신 주체', 'Codex (orca-usage 는 읽기만 함)', 'gray')
     } else {
       const owner = token.owner === 'retry'
         ? `orca-usage 백엔드, 갱신 실패 후 재시도 대기 (${when(token.retryAt, now)})`
@@ -115,16 +118,18 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
     const state = refreshState(token.refresh)
     item('상태', state.text, state.color)
     if (codex) {
-      // Codex 의 refresh token 은 만료를 담지 않은 불투명 값이고 auth.json 에도 없다.
-      item('만료', '알 수 없음 (Codex 가 만료 정보를 주지 않음)', 'gray')
+      // 기한이 없다. 쓰는 동안 Codex 가 갱신해 이어 가고, 1회용이라 다른 곳이 쓰면 끊긴다
+      // (adapters/orca/codex-auth.js). 대신 브라우저 로그인 시각을 보인다.
+      item('기한', '없음, 쓰는 동안 Codex 가 갱신해 유지', 'gray')
+      item('로그인 시각', token.loginAt ? when(token.loginAt, now) : '모름', token.loginAt ? 'white' : 'gray')
     } else {
       const expiry = expiryLine(token.refresh?.expiresAt, now, SOON.refresh)
-      item('만료', token.refresh?.expiresAt ? expiry.text : '모름 (키체인에 값 없음)', expiry.color)
+      item('기한', token.refresh?.expiresAt ? expiry.text : '모름 (키체인에 값 없음)', expiry.color)
+      item('기한 규칙', '로그인 때 정해짐, 갱신으로 연장 안 됨', 'gray')
     }
     const rotated = token.refresh?.rotatedAt
     item('교체 시각', rotated ? when(rotated, now) : '백엔드 시작 이후 없음', rotated ? 'white' : 'gray')
-    // 교체돼도 만료는 로그인 때 정해진 그대로다. 늘리는 길은 재로그인뿐이다.
-    if (needsRelogin(token, now)) item('조치', 'Orca 에서 이 계정으로 재로그인 (갱신으로는 연장 안 됨)', 'red')
+    if (needsRelogin(token, now)) item('조치', 'Orca 에서 이 계정으로 재로그인', 'red')
   } else {
     item('상태', '읽기 실패', 'gray')
   }
@@ -158,9 +163,10 @@ function overviewLines(rows, now) {
     const access = expiryCell(row.token?.expiresAt, now)
     const state = row.token ? refreshState(row.token.refresh) : { text: '확인 전', color: 'gray' }
     // 문제가 있으면 상태를, 없으면 남은 기간을 적는다. 남은 기간을 모르면 상태(있음)다.
-    const refresh = state.color === 'white' && row.token.refresh?.expiresAt
-      ? expiryCell(row.token.refresh.expiresAt, now, SOON.refresh)
-      : { text: state.text.split(' (')[0], color: state.color }
+    const refresh = state.color !== 'white' ? { text: state.text.split(' (')[0], color: state.color }
+      : row.token.refresh?.expiresAt ? expiryCell(row.token.refresh.expiresAt, now, SOON.refresh)
+        : row.token.source === 'codex-auth' ? { text: '기한 없음', color: 'gray' }
+          : { text: state.text, color: state.color }
     const name = `${row.index} ${row.email}`
     lines.push({
       table: true,

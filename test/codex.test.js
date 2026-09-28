@@ -63,7 +63,7 @@ describe('readCodexAuth', () => {
     fs.writeFileSync(file, JSON.stringify({
       last_refresh: '2026-09-25T02:21:26.249880Z',
       tokens: {
-        id_token: jwt({ exp: 1, 'https://api.openai.com/auth': { chatgpt_plan_type: 'pro' } }),
+        id_token: jwt({ exp: 1, auth_time: 1789000000, 'https://api.openai.com/auth': { chatgpt_plan_type: 'pro' } }),
         access_token: jwt({ exp: 1790000000 }),
         refresh_token: 'rt_secret',
       },
@@ -74,6 +74,7 @@ describe('readCodexAuth', () => {
       expiresAt: 1790000000 * 1000,
       refreshedAt: Date.parse('2026-09-25T02:21:26.249880Z'),
       refresh: fingerprintOf('rt_secret'),
+      loginAt: 1789000000 * 1000,
     })
     expect(read.refresh).toMatch(/^[0-9a-f]{8}$/)
     expect(JSON.stringify(read)).not.toContain('rt_secret')

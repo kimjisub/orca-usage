@@ -434,6 +434,7 @@ export class Engine extends EventEmitter {
       return {
         expiresAt: info.expiresAt,
         renewedAt: info.refreshedAt,
+        loginAt: info.loginAt ?? null,
         checkedAt: this.pollState.lastAt,
         owner: 'orca',
         source: 'codex-auth',
