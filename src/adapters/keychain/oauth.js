@@ -61,7 +61,7 @@ async function refreshCredentials(payload) {
       marker = JSON.parse(await response.text()).error
     } catch { /* 본문이 JSON 이 아니면 코드로만 판단한다 */ }
     if (marker === 'invalid_grant') {
-      return { payload, error: '리프레시 토큰 폐기됨 (Orca 에서 재로그인이 필요합니다)', fatal: true }
+      return { payload, error: '리프레시 토큰 폐기됨 (Orca 에서 재로그인이 필요합니다)', fatal: true, revoked: true }
     }
     if (marker === 'invalid_client') return { payload, error: '클라이언트 거부됨', fatal: true }
     return { payload, error: `갱신 실패 HTTP ${response.status}` }
@@ -117,6 +117,7 @@ export async function ensureToken(accountId, { allowRefresh, lastRefreshAt = 0, 
         refreshed: false,
         expiresAt: oauth.expiresAt,
         authFailed: Boolean(result.fatal),
+        revoked: Boolean(result.revoked),
       }
     }
 

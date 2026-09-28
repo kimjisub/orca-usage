@@ -4,7 +4,7 @@ import { codexTokenInfo } from '../adapters/orca/codex-auth.js'
 import { activeAccountIds, selectClaudeAccount } from '../adapters/orca/orca-rpc.js'
 import { ensureToken, fetchUsage, normalize } from '../adapters/keychain/oauth.js'
 import { openWindow } from '../adapters/keychain/keepalive.js'
-import { peekExpiry, refreshNow } from '../adapters/keychain/tokens.js'
+import { peekToken, refreshNow } from '../adapters/keychain/tokens.js'
 import {
   appendHistory, loadCache, loadHistory, saveCache, saveHistory, updateCache,
 } from '../adapters/store/store.js'
@@ -34,7 +34,7 @@ export function createPorts({ updater } = {}) {
       ]).filter(([, info]) => info)),
     },
     keychain: {
-      ensureToken, fetchUsage, normalize, peekExpiry, refresh: refreshNow, openWindow,
+      ensureToken, fetchUsage, normalize, peekToken, refresh: refreshNow, openWindow,
     },
     store: {
       loadCache, saveCache, updateCache, loadHistory, saveHistory, appendHistory,

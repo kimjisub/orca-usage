@@ -72,6 +72,31 @@ export class Engine extends EventEmitter {
     this.refreshFailedAt = new Map()
     // Codex 토큰은 Orca 와 Codex 가 돌린다. 만료와 마지막 갱신을 읽어 보여 주기만 한다.
     this.codexTokens = new Map()
+    // 액세스 토큰의 만료 시각이 늘어난 것을 본 시각. 누가 갱신했든 여기 남는다.
+    this.accessRenewedAt = new Map()
+    // 리프레시 토큰의 지문과, 지문이 바뀐 것을 본 시각. 원문은 들고 있지 않는다.
+    this.refreshPrint = new Map()
+    // 발급처가 리프레시 토큰을 폐기했다고 답한 시각. 새 토큰이 보이면 지운다.
+    this.refreshRevokedAt = new Map()
+  }
+
+  /**
+   * 키체인이나 auth.json 에서 읽은 토큰을 이전 값과 견준다. 만료가 늘었으면
+   * 액세스 토큰이 새로 나온 것이고, 지문이 바뀌었으면 리프레시 토큰이 교체된
+   * 것이다. 처음 읽은 값은 비교할 것이 없어 교체 시각을 모른다.
+   */
+  observeToken(accountId, { expiresAt, refresh }, now = this.now()) {
+    const previous = this.expiry.get(accountId)
+    if (previous != null && expiresAt != null && expiresAt > previous) this.accessRenewedAt.set(accountId, now)
+    this.expiry.set(accountId, expiresAt)
+    this.expiryCheckedAt.set(accountId, now)
+    const seen = this.refreshPrint.get(accountId)
+    if (!seen) {
+      this.refreshPrint.set(accountId, { print: refresh, rotatedAt: null })
+    } else if (seen.print !== refresh) {
+      this.refreshPrint.set(accountId, { print: refresh, rotatedAt: now })
+      if (refresh) this.refreshRevokedAt.delete(accountId)
+    }
   }
 
   /**
@@ -263,7 +288,8 @@ export class Engine extends EventEmitter {
       if (!row.refreshedAt || row.refreshedAt <= (this.refreshSeen.get(row.id) ?? 0)) continue
       this.refreshSeen.set(row.id, row.refreshedAt)
       if (typeof row.expiresAt === 'number') this.expiry.set(row.id, row.expiresAt)
-      this.note('token', '갱신함', { email: row.email })
+      this.accessRenewedAt.set(row.id, row.refreshedAt)
+      this.note('token', '토큰 갱신', { email: row.email })
     }
   }
 
@@ -299,14 +325,14 @@ export class Engine extends EventEmitter {
     for (const account of this.accounts) {
       if (account.provider !== 'claude') continue
       const now = this.now()
-      let expiresAt
+      let peeked
       try {
-        expiresAt = await keychain.peekExpiry(account.id)
+        peeked = await keychain.peekToken(account.id)
       } catch {
         continue // 키체인이 잠깐 잠겼다. 다음 조회에 다시 본다
       }
-      this.expiry.set(account.id, expiresAt)
-      this.expiryCheckedAt.set(account.id, now)
+      this.observeToken(account.id, peeked, now)
+      const { expiresAt } = peeked
       if (!isAbandoned(expiresAt, now)) continue
       if (now - (this.refreshFailedAt.get(account.id) ?? 0) < REFRESH_RETRY_MS) continue
 
@@ -320,15 +346,15 @@ export class Engine extends EventEmitter {
       }
       if (result.refreshed) {
         this.refreshFailedAt.delete(account.id)
-        this.expiry.set(account.id, result.expiresAt)
-        this.expiryCheckedAt.set(account.id, now)
         store.updateCache(account.id, { expiresAt: result.expiresAt, refreshedAt: now })
         this.refreshSeen.set(account.id, now)
+        await this.peekAfterRefresh(account.id, result.expiresAt, now)
         const hours = Math.floor((now - expiresAt) / 3_600_000)
-        this.note('token', `갱신함 (만료 ${hours}시간 지남)`, { email: account.email })
+        this.note('token', `토큰 갱신 (만료 ${hours}시간 경과)`, { email: account.email })
         continue
       }
       this.refreshFailedAt.set(account.id, now)
+      if (result.revoked) this.refreshRevokedAt.set(account.id, now)
       this.note('error', `토큰 갱신 실패: ${result.note ?? '이유 모름'}`, { email: account.email, ok: false })
       if (result.authFailed) {
         this.rows = this.rows.map((row) => (row.id === account.id
@@ -344,9 +370,20 @@ export class Engine extends EventEmitter {
     for (const account of this.accounts) {
       if (account.provider !== 'claude') continue
       try {
-        this.expiry.set(account.id, await this.ports.keychain.peekExpiry(account.id))
-        this.expiryCheckedAt.set(account.id, this.now())
+        this.observeToken(account.id, await this.ports.keychain.peekToken(account.id))
       } catch { /* 키체인이 잠깐 잠겼다. 조회 주기에 다시 본다 */ }
+    }
+  }
+
+  /**
+   * 우리가 갱신한 직후 키체인을 다시 읽어 새 리프레시 토큰의 지문을 잡는다.
+   * 못 읽으면 받은 만료만 적고, 지문은 다음 조회에 잡힌다.
+   */
+  async peekAfterRefresh(accountId, expiresAt, now) {
+    try {
+      this.observeToken(accountId, await this.ports.keychain.peekToken(accountId), now)
+    } catch {
+      this.observeToken(accountId, { expiresAt, refresh: this.refreshPrint.get(accountId)?.print ?? null }, now)
     }
   }
 
@@ -354,6 +391,7 @@ export class Engine extends EventEmitter {
     const read = this.ports.orca.codexTokens
     if (!read) return
     this.codexTokens = read(this.accounts.filter((account) => account.provider === 'codex'))
+    for (const [accountId, info] of this.codexTokens) this.observeToken(accountId, info)
   }
 
   /**
@@ -365,20 +403,37 @@ export class Engine extends EventEmitter {
    */
   tokenOf(row) {
     const now = this.now()
+    const seen = this.refreshPrint.get(row.id)
+    const refresh = {
+      // 읽은 적이 없으면 null, 읽었는데 비어 있으면 false 다.
+      present: seen ? Boolean(seen.print) : null,
+      rotatedAt: seen?.rotatedAt ?? null,
+      revokedAt: this.refreshRevokedAt.get(row.id) ?? null,
+    }
     if (row.provider === 'codex') {
       const info = this.codexTokens.get(row.id)
-      return info ? { ...info, checkedAt: this.pollState.lastAt, owner: 'orca', source: 'codex-auth' } : null
+      if (!info) return null
+      return {
+        expiresAt: info.expiresAt,
+        renewedAt: info.refreshedAt,
+        checkedAt: this.pollState.lastAt,
+        owner: 'orca',
+        source: 'codex-auth',
+        refresh,
+      }
     }
     const expiresAt = this.expiry.get(row.id) ?? null
     const failedAt = this.refreshFailedAt.get(row.id) ?? null
     const waiting = failedAt != null && now - failedAt < REFRESH_RETRY_MS
     return {
       expiresAt,
+      renewedAt: this.accessRenewedAt.get(row.id) ?? null,
       checkedAt: this.expiryCheckedAt.get(row.id) ?? null,
       refreshedAt: this.refreshSeen.get(row.id) ?? null,
       owner: waiting ? 'retry' : isAbandoned(expiresAt, now) ? 'backend' : 'orca',
       retryAt: waiting ? failedAt + REFRESH_RETRY_MS : null,
       source: 'keychain',
+      refresh,
     }
   }
 
@@ -480,7 +535,9 @@ export class Engine extends EventEmitter {
     let expiresAt = null
     if (account?.provider === 'claude' && this.orcaState.connected) {
       try {
-        expiresAt = await keychain.peekExpiry(accountId)
+        const peeked = await keychain.peekToken(accountId)
+        this.observeToken(accountId, peeked)
+        expiresAt = peeked.expiresAt
       } catch (error) {
         throw new Error(`자격증명을 읽지 못했습니다: ${error.message}`)
       }
@@ -491,13 +548,16 @@ export class Engine extends EventEmitter {
     if (refusal) throw new Error(refusal)
 
     const result = await keychain.refresh(accountId)
-    if (!result.refreshed) throw new Error(result.note ?? '갱신하지 못했습니다')
+    if (!result.refreshed) {
+      if (result.revoked) this.refreshRevokedAt.set(accountId, this.now())
+      throw new Error(result.note ?? '갱신하지 못했습니다')
+    }
     const now = this.now()
     this.refreshFailedAt.delete(accountId)
-    this.expiry.set(accountId, result.expiresAt)
     this.refreshSeen.set(accountId, now)
     store.updateCache(accountId, { expiresAt: result.expiresAt, refreshedAt: now })
-    this.note('token', '손으로 갱신함', { email: account.email })
+    await this.peekAfterRefresh(accountId, result.expiresAt, now)
+    this.note('token', '토큰 갱신 (수동)', { email: account.email })
     this.runPoll({ force: true })
     return { email: account.email, expiresAt: result.expiresAt }
   }

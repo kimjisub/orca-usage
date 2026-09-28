@@ -24,7 +24,49 @@ describe('재인증', () => {
     await engine.start({ schedule: false })
     await engine.cycle()
     expect(calls.refresh).toEqual(['a'])
-    expect(state.log.some((entry) => entry.kind === 'token' && entry.text.startsWith('갱신함'))).toBe(true)
+    expect(state.log.some((entry) => entry.kind === 'token' && entry.text.startsWith('토큰 갱신'))).toBe(true)
+  })
+
+  test('액세스 토큰 만료가 늘면 갱신 시각을, 리프레시 토큰 지문이 바뀌면 교체 시각을 남긴다', async () => {
+    const { engine, state, advance, now } = setup({
+      accounts: [claudeAccount('a', 1)],
+      usage: { a: limits(T0) },
+      expiry: { a: T0 + 5 * HOUR },
+    })
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    let token = engine.snapshot().accounts[0].token
+    // 처음 읽은 값은 견줄 것이 없어 언제 바뀌었는지 모른다.
+    expect(token.refresh).toEqual({ present: true, rotatedAt: null, revokedAt: null })
+    expect(token.renewedAt).toBe(null)
+
+    advance(10 * 60_000)
+    state.expiry.a = now() + 8 * HOUR
+    state.refresh.a = 'r-a-2'
+    await engine.cycle()
+    token = engine.snapshot().accounts[0].token
+    expect(token.renewedAt).toBe(now())
+    expect(token.refresh.rotatedAt).toBe(now())
+  })
+
+  test('발급처가 폐기했다고 답하면 폐기 시각을 남기고, 새 리프레시 토큰이 보이면 지운다', async () => {
+    const { engine, ports, state, advance, now } = setup({
+      accounts: [claudeAccount('a', 1)],
+      usage: { a: limits(T0) },
+      expiry: { a: T0 - 2 * HOUR },
+    })
+    ports.keychain.refresh = async () => ({
+      refreshed: false, expiresAt: null, note: '리프레시 토큰 폐기됨', authFailed: true, revoked: true,
+    })
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    expect(engine.snapshot().accounts[0].token.refresh.revokedAt).toBe(now())
+
+    advance(10 * 60_000)
+    state.refresh.a = 'r-a-relogin'
+    state.expiry.a = now() + 8 * HOUR
+    await engine.cycle()
+    expect(engine.snapshot().accounts[0].token.refresh.revokedAt).toBe(null)
   })
 
   test('만료된 지 30분이면 Orca 몫으로 두고 갱신하지 않는다', async () => {

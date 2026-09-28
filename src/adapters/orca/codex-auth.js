@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fingerprintOf } from '../../core/fingerprint.js'
 import { CODEX_HOME, ORCA_CODEX_ACCOUNTS } from '../../paths.js'
 
 /**
@@ -79,9 +80,9 @@ const authFileFor = (accountId) => (accountId
  * 만료는 access_token 의 exp 다. id_token 은 갱신한 뒤 한 시간이면 만료돼
  * 토큰이 살아 있는지와 상관이 없다(실측 2026-09-25: access_token 은 238시간
  * 남았는데 id_token 은 이미 만료). last_refresh 는 Codex 나 Orca 가 마지막으로
- * 토큰을 갱신한 시각이다.
+ * 토큰을 갱신한 시각이다. 리프레시 토큰은 지문만 꺼낸다(core/fingerprint.js).
  *
- * @returns {{planType: string|null, expiresAt: number|null, refreshedAt: number|null}|null}
+ * @returns {{planType: string|null, expiresAt: number|null, refreshedAt: number|null, refresh: string|null}|null}
  */
 export function readCodexAuth(file) {
   let auth
@@ -97,6 +98,7 @@ export function readCodexAuth(file) {
     planType: identity?.['https://api.openai.com/auth']?.chatgpt_plan_type ?? null,
     expiresAt: typeof access?.exp === 'number' ? access.exp * 1000 : null,
     refreshedAt: Number.isFinite(refreshedAt) ? refreshedAt : null,
+    refresh: fingerprintOf(auth?.tokens?.refresh_token),
   }
 }
 
@@ -112,11 +114,11 @@ export function codexPlanLabel(accountId, workspaceLabel = null) {
 }
 
 /**
- * 계정 하나의 토큰 만료와 마지막 갱신. 못 읽으면 null.
+ * 계정 하나의 토큰 만료, 마지막 갱신, 리프레시 토큰 지문. 못 읽으면 null.
  *
  * @param {string|null} accountId Orca 의 계정 id. null 이면 시스템 기본 로그인
  */
 export function codexTokenInfo(accountId) {
   const auth = readCodexAuth(authFileFor(accountId))
-  return auth ? { expiresAt: auth.expiresAt, refreshedAt: auth.refreshedAt } : null
+  return auth ? { expiresAt: auth.expiresAt, refreshedAt: auth.refreshedAt, refresh: auth.refresh } : null
 }

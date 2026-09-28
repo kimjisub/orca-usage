@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { readCodexAuth } from '../src/adapters/orca/codex-auth.js'
+import { fingerprintOf } from '../src/core/fingerprint.js'
 import { codexActiveId, systemCodexAccount } from '../src/adapters/orca/system-codex.js'
 
 // agent 맥의 Orca 가 준 모양(2026-09-25). 관리 계정 0개, Codex 는 시스템 기본으로 돈다.
@@ -57,18 +58,25 @@ describe('readCodexAuth', () => {
 
   const jwt = (claims) => `h.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.s`
 
-  test('요금제는 id_token, 만료는 access_token 의 exp, 갱신은 last_refresh 에서 읽는다', () => {
+  test('요금제는 id_token, 만료는 access_token 의 exp, 갱신은 last_refresh 에서, 리프레시 토큰은 지문만 읽는다', () => {
     const file = path.join(dir, 'auth.json')
     fs.writeFileSync(file, JSON.stringify({
       last_refresh: '2026-09-25T02:21:26.249880Z',
       tokens: {
         id_token: jwt({ exp: 1, 'https://api.openai.com/auth': { chatgpt_plan_type: 'pro' } }),
         access_token: jwt({ exp: 1790000000 }),
+        refresh_token: 'rt_secret',
       },
     }))
-    expect(readCodexAuth(file)).toEqual({
-      planType: 'pro', expiresAt: 1790000000 * 1000, refreshedAt: Date.parse('2026-09-25T02:21:26.249880Z'),
+    const read = readCodexAuth(file)
+    expect(read).toEqual({
+      planType: 'pro',
+      expiresAt: 1790000000 * 1000,
+      refreshedAt: Date.parse('2026-09-25T02:21:26.249880Z'),
+      refresh: fingerprintOf('rt_secret'),
     })
+    expect(read.refresh).toMatch(/^[0-9a-f]{8}$/)
+    expect(JSON.stringify(read)).not.toContain('rt_secret')
   })
 
   test('파일이 없으면 null', () => {

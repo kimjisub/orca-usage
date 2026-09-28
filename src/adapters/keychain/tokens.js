@@ -1,19 +1,29 @@
+import { fingerprintOf } from '../../core/fingerprint.js'
+import { readCredentials } from './credentials.js'
 import { ensureToken } from './oauth.js'
 
 /**
- * 토큰의 만료 시각만 읽는다. 갱신하지 않는다.
+ * 키체인의 토큰을 읽기만 한다. 갱신하지 않는다.
  *
- * @returns {Promise<number|null>}
+ * 액세스 토큰은 만료 시각을, 리프레시 토큰은 지문만 돌려준다. 원문은 이
+ * 함수를 벗어나지 않는다.
+ *
+ * @returns {Promise<{expiresAt: number|null, refresh: string|null}>}
  */
-export async function peekExpiry(accountId) {
-  const result = await ensureToken(accountId, { allowRefresh: false, lastRefreshAt: 0 })
-  return typeof result.expiresAt === 'number' ? result.expiresAt : null
+export async function peekToken(accountId) {
+  const oauth = JSON.parse(await readCredentials(accountId)).claudeAiOauth ?? {}
+  return {
+    expiresAt: typeof oauth.expiresAt === 'number' ? oauth.expiresAt : null,
+    refresh: fingerprintOf(oauth.refreshToken),
+  }
 }
 
 /**
  * 지금 갱신한다. 언제 해도 되는지는 부르는 쪽이 core/policy 로 정한다.
  *
- * @returns {Promise<{refreshed: boolean, expiresAt: number|null, note: string|null, authFailed: boolean}>}
+ * revoked 는 발급처가 리프레시 토큰을 폐기했다고 답한 경우다(invalid_grant).
+ *
+ * @returns {Promise<{refreshed: boolean, expiresAt: number|null, note: string|null, authFailed: boolean, revoked: boolean}>}
  */
 export async function refreshNow(accountId) {
   const result = await ensureToken(accountId, { allowRefresh: true, lastRefreshAt: 0, force: true })
@@ -22,5 +32,6 @@ export async function refreshNow(accountId) {
     expiresAt: typeof result.expiresAt === 'number' ? result.expiresAt : null,
     note: result.refreshed ? null : (result.note ?? null),
     authFailed: Boolean(result.authFailed),
+    revoked: Boolean(result.revoked),
   }
 }

@@ -37,6 +37,7 @@ export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {},
     usage,
     active: { claude: null, codex: null, ...active },
     expiry: { ...expiry },
+    refresh: {},
     policy: {
       autoSwitch: false, keepAlive: false, notifications: true, tuning: {}, hiddenIds: [], lastSwitchAt: 0,
       ...policy,
@@ -76,14 +77,15 @@ export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {},
       ensureToken: async () => ({ token: null, note: null, refreshed: false, expiresAt: null }),
       fetchUsage: async () => ({ data: null, error: '쓰지 않음', retryAfter: null }),
       normalize: (data) => data,
-      peekExpiry: async (id) => {
+      peekToken: async (id) => {
         calls.peek.push(id)
-        return state.expiry[id] ?? null
+        return { expiresAt: state.expiry[id] ?? null, refresh: state.refresh[id] ?? `r-${id}` }
       },
       refresh: async (id) => {
         calls.refresh.push(id)
         state.expiry[id] = now() + 8 * HOUR
-        return { refreshed: true, expiresAt: state.expiry[id], note: null, authFailed: false }
+        state.refresh[id] = `${state.refresh[id] ?? `r-${id}`}+`
+        return { refreshed: true, expiresAt: state.expiry[id], note: null, authFailed: false, revoked: false }
       },
       openWindow: async (id) => {
         calls.openWindow.push(id)

@@ -19,15 +19,16 @@
  * @property {(provider: string, accountId: string) => Promise<void>} select
  * @property {(options: {refreshUsage: boolean}) => Promise<object>} fetchLimits
  *   Orca 가 들고 있는 계정별 한도 (adapters/orca/orca-limits.js 의 모양)
- * @property {(accounts: Account[]) => Map<string, {expiresAt: number|null, refreshedAt: number|null}>} [codexTokens]
+ * @property {(accounts: Account[]) => Map<string, {expiresAt: number|null, refreshedAt: number|null, refresh: string|null}>} [codexTokens]
  *   Codex 계정들의 토큰 만료와 마지막 갱신. 읽기만 한다
  *
  * @typedef {object} KeychainPort
  * @property {(accountId: string, options: object) => Promise<object>} ensureToken
  * @property {(token: string) => Promise<{data: object|null, error: string|null, retryAfter: number|null}>} fetchUsage
  * @property {(data: object) => {windows: object[]}} normalize
- * @property {(accountId: string) => Promise<number|null>} peekExpiry
- * @property {(accountId: string) => Promise<{refreshed: boolean, expiresAt: number|null, note: string|null, authFailed: boolean}>} refresh
+ * @property {(accountId: string) => Promise<{expiresAt: number|null, refresh: string|null}>} peekToken
+ *   액세스 토큰의 만료와 리프레시 토큰의 지문(core/fingerprint.js). 갱신하지 않는다
+ * @property {(accountId: string) => Promise<{refreshed: boolean, expiresAt: number|null, note: string|null, authFailed: boolean, revoked: boolean}>} refresh
  * @property {(accountId: string) => Promise<{ok: boolean, reason?: string, refreshed?: boolean}>} openWindow
  *
  * @typedef {object} StorePort
