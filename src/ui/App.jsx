@@ -18,6 +18,7 @@ import { Help, helpRows, helpVisibleRows } from './Help.jsx'
 import { Score } from './Score.jsx'
 import { Details, detailLines } from './Details.jsx'
 import { needsScreenRestart } from './follow-backend.js'
+import { needsRelogin } from '../core/policy.js'
 import { actionLines, tabWindow } from './bars.js'
 
 const HEADER_ROWS = 2
@@ -82,8 +83,11 @@ function Header({ status, snapshot, hello, now, message }) {
     right = <Text color="gray">{'백엔드 연결 중'}</Text>
   } else {
     const countdown = poll?.running ? '조회 중' : poll?.nextAt ? `다음 조회 ${shortSpan(poll.nextAt - now)}` : ''
+    const relogin = (snapshot.accounts ?? []).filter((row) => needsRelogin(row.token, now)).length
     right = (
       <>
+        {/* 놓치면 계정 하나가 통째로 멈춘다. 머리글에서 가장 먼저 보이게 둔다. */}
+        {relogin ? <Text color="red" bold>{`재로그인 필요 ${relogin}  `}</Text> : null}
         {/* Orca 없이 직접 치는 중이면 알린다. 값이 낡거나 백오프에 걸릴 수 있어서다. */}
         {snapshot.orca?.connected ? null : <Text color="yellow">{'Orca 연결 없음, 직접 조회  '}</Text>}
         {hello && hello.version !== SCREEN_VERSION

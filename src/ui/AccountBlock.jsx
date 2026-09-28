@@ -2,6 +2,7 @@ import React from 'react'
 import { Text } from 'ink'
 import { colorForSeries } from './chart.js'
 import { shortSpan } from '../core/format.js'
+import { needsRelogin } from '../core/policy.js'
 import { Bar } from './Bar.jsx'
 
 export const ACTIVE_MARK = '*'
@@ -32,6 +33,13 @@ function staleTag(row, now, staleAfterMs) {
   return old
 }
 
+/** 재로그인 표시. 남은 기간을 붙여 얼마나 급한지 보인다. */
+function reloginTag(token, now) {
+  if (token.refresh.revokedAt) return '재로그인 필요'
+  const left = token.refresh.expiresAt - now
+  return left <= 0 ? '재로그인 필요 (만료됨)' : `재로그인 필요 (${shortSpan(left)} 뒤 만료)`
+}
+
 export function AccountBlock({
   row, active, dimmed, selected, now, barWidth, staleAfterMs, gap = true,
 }) {
@@ -52,6 +60,7 @@ export function AccountBlock({
         {dimmed ? <Text color="gray">{'  숨김'}</Text> : null}
         {row.label ? <Text color="gray">{`  [${row.label}]`}</Text> : null}
         {tag ? <Text color="gray">{`  ${tag}`}</Text> : null}
+        {needsRelogin(row.token, now) ? <Text color="red" bold>{`  ${reloginTag(row.token, now)}`}</Text> : null}
       </Text>
 
       {windows.length

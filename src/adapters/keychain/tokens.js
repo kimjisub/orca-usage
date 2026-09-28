@@ -35,5 +35,7 @@ export async function refreshNow(accountId) {
     note: result.refreshed ? null : (result.note ?? null),
     authFailed: Boolean(result.authFailed),
     revoked: Boolean(result.revoked),
+    refreshLifetime: result.refreshLifetime ?? null,
+    responseKeys: result.responseKeys ?? null,
   }
 }

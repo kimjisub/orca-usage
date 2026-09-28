@@ -9,6 +9,13 @@ import { pollOnce, rowsFromCache } from './poller.js'
 const ACTIVE_POLL_MS = 5_000
 // 추천과 점수는 시각에 따라 변한다(창이 흐른 비율). 조회가 없어도 이만큼마다 다시 잰다.
 const DERIVE_MS = 60_000
+// refresh token 만료 경고 단계. 작은 것부터 보고 처음 맞는 단계를 쓴다.
+const REFRESH_WARN_STAGES = [
+  { label: '만료', ms: 0 },
+  { label: '6시간', ms: 6 * 3_600_000 },
+  { label: '1일', ms: 24 * 3_600_000 },
+  { label: '3일', ms: 3 * 24 * 3_600_000 },
+]
 const UPDATE_CHECK_MS = 6 * 60 * 60_000
 // 갱신에 실패한 토큰은 이만큼 다시 건드리지 않는다. 폐기된 refresh token 으로
 // 조회 주기마다 토큰 엔드포인트를 두드리면 아무것도 나아지지 않고 요청만 쌓인다.
@@ -80,6 +87,8 @@ export class Engine extends EventEmitter {
     this.refreshRevokedAt = new Map()
     // 리프레시 토큰의 만료. Claude 만 키체인에 있고 Codex 는 알 수 없다.
     this.refreshExpiry = new Map()
+    // 만료 경고를 어디까지 보냈나. 계정마다 "기한:단계" 를 적어 같은 단계를 두 번 알리지 않는다.
+    this.refreshWarned = new Map()
   }
 
   /**
@@ -335,6 +344,7 @@ export class Engine extends EventEmitter {
         continue // 키체인이 잠깐 잠겼다. 다음 조회에 다시 본다
       }
       this.observeToken(account.id, peeked, now)
+      this.warnRefreshExpiry(account, peeked.refreshExpiresAt, now)
       const { expiresAt } = peeked
       if (!isAbandoned(expiresAt, now)) continue
       if (now - (this.refreshFailedAt.get(account.id) ?? 0) < REFRESH_RETRY_MS) continue
@@ -739,6 +749,28 @@ export class Engine extends EventEmitter {
     const entry = this.ports.store.log(kind, text, detail)
     this.emit('log', entry)
     return entry
+  }
+
+  /**
+   * refresh token 만료가 다가오면 재로그인을 요청한다.
+   *
+   * 갱신으로는 늘릴 수 없다. 발급처는 갱신할 때 refresh_token_expires_in 으로 남은
+   * 시간을 주고 새 토큰도 처음 로그인 때 정해진 기한을 그대로 따른다(실측
+   * 2026-09-28: 갱신 전후 만료가 같은 초였다). 지나면 Orca 가 이 계정을 못 쓰고,
+   * 풀려면 Orca 에서 다시 로그인해야 한다. 3일, 1일, 6시간 전과 만료 시점에 한
+   * 번씩 알린다. 재로그인으로 기한이 바뀌면 처음부터 다시 센다.
+   */
+  warnRefreshExpiry(account, deadline, now = this.now()) {
+    if (!deadline) return
+    const left = deadline - now
+    const stage = REFRESH_WARN_STAGES.find((entry) => left <= entry.ms)
+    if (!stage) return
+    const key = `${deadline}:${stage.label}`
+    if (this.refreshWarned.get(account.id) === key) return
+    this.refreshWarned.set(account.id, key)
+    const when = left <= 0 ? '만료됨' : `${stage.label} 이내 만료`
+    this.note('error', `refresh token ${when}, Orca 에서 재로그인 필요`, { email: account.email, ok: false })
+    this.alert('재로그인 필요', `${account.email}: refresh token ${when}. Orca 에서 이 계정으로 다시 로그인하세요`)
   }
 
   alert(title, body) {

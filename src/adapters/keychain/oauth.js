@@ -81,7 +81,10 @@ export async function refreshCredentials(payload) {
   }
   if (granted.scope) oauth.scopes = granted.scope.split(' ')
   data.claudeAiOauth = oauth
-  return { payload: JSON.stringify(data), error: null }
+  // 발급처가 refresh token 수명을 주는지가 갱신으로 그 수명을 늘릴 수 있는지를 가른다.
+  // 값만 남기고 토큰은 남기지 않는다.
+  const refreshLifetime = Number(granted.refresh_token_expires_in) > 0 ? Number(granted.refresh_token_expires_in) : null
+  return { payload: JSON.stringify(data), error: null, refreshLifetime, responseKeys: Object.keys(granted).sort() }
 }
 
 /**
@@ -140,7 +143,14 @@ export async function ensureToken(accountId, { allowRefresh, lastRefreshAt = 0, 
       throw new CredentialError(`키체인에 쓴 값이 다시 읽히지 않습니다. 백업: ${backup}`)
     }
     const fresh = JSON.parse(result.payload).claudeAiOauth
-    return { token: fresh.accessToken, note: '토큰 갱신', refreshed: true, expiresAt: fresh.expiresAt }
+    return {
+      token: fresh.accessToken,
+      note: '토큰 갱신',
+      refreshed: true,
+      expiresAt: fresh.expiresAt,
+      refreshLifetime: result.refreshLifetime,
+      responseKeys: result.responseKeys,
+    }
   })
 
   if (!acquired) return { ...base, note: '토큰 만료 (다른 곳에서 갱신 중입니다)' }

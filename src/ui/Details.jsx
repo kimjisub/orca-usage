@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { cellWidth, clockAt, shortSpan } from '../core/format.js'
+import { needsRelogin } from '../core/policy.js'
 
 // 한 줄에 제목과 값. 제목 폭을 맞춰 세로가 줄로 읽힌다. 한글은 두 칸이다.
 const TOPIC_WIDTH = 16
@@ -122,6 +123,8 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
     }
     const rotated = token.refresh?.rotatedAt
     item('교체 시각', rotated ? when(rotated, now) : '백엔드 시작 이후 없음', rotated ? 'white' : 'gray')
+    // 교체돼도 만료는 로그인 때 정해진 그대로다. 늘리는 길은 재로그인뿐이다.
+    if (needsRelogin(token, now)) item('조치', 'Orca 에서 이 계정으로 재로그인 (갱신으로는 연장 안 됨)', 'red')
   } else {
     item('상태', '읽기 실패', 'gray')
   }

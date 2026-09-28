@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  REFRESH_AFTER_EXPIRY_MS, isAbandoned, needsOpening, refuseManualRefresh,
+  REFRESH_AFTER_EXPIRY_MS, isAbandoned, needsOpening, needsRelogin, refuseManualRefresh,
 } from '../src/core/policy.js'
 
 const NOW = Date.parse('2026-09-25T12:00:00Z')
@@ -46,5 +46,18 @@ describe('needsOpening', () => {
   test('자격증명이 끊긴 계정은 열지 않는다', () => {
     const row = { provider: 'claude', authFailed: true, usage: { windows: [] } }
     expect(needsOpening(row, NOW)).toBe(false)
+  })
+})
+
+describe('needsRelogin', () => {
+  const now = 1_000_000_000_000
+  test('3일 안이면 필요, 그 밖이면 불필요, 모르면 불필요', () => {
+    expect(needsRelogin({ refresh: { expiresAt: now + 2 * 86_400_000 } }, now)).toBe(true)
+    expect(needsRelogin({ refresh: { expiresAt: now + 4 * 86_400_000 } }, now)).toBe(false)
+    expect(needsRelogin({ refresh: { expiresAt: null } }, now)).toBe(false)
+    expect(needsRelogin(null, now)).toBe(false)
+  })
+  test('폐기됐으면 기한과 무관하게 필요', () => {
+    expect(needsRelogin({ refresh: { expiresAt: null, revokedAt: now } }, now)).toBe(true)
   })
 })

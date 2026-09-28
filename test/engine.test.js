@@ -57,6 +57,28 @@ describe('재인증', () => {
     expect(engine.snapshot().accounts[0].token.refresh.expiresAt).toBe(T0 + 3 * 24 * HOUR)
   })
 
+  test('refresh token 만료가 다가오면 단계마다 한 번씩 재로그인을 알린다', async () => {
+    const { engine, state, calls, advance } = setup({ accounts: [claudeAccount('a', 1)], usage: { a: limits(T0) }, expiry: { a: T0 + HOUR } })
+    state.refreshExpiry.a = T0 + 2 * 24 * HOUR
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    await engine.cycle()
+    const warned = () => state.log.filter((entry) => entry.text.includes('재로그인 필요'))
+    expect(warned()).toHaveLength(1)
+    expect(warned()[0].text).toContain('3일 이내')
+    expect(calls.notify.length).toBe(1)
+
+    advance(30 * HOUR)
+    await engine.cycle()
+    expect(warned()).toHaveLength(2)
+    expect(warned()[1].text).toContain('1일 이내')
+
+    // 재로그인으로 기한이 30일 뒤로 바뀌면 조용하다.
+    state.refreshExpiry.a = T0 + 32 * 24 * HOUR
+    await engine.cycle()
+    expect(warned()).toHaveLength(2)
+  })
+
   test('발급처가 폐기했다고 답하면 폐기 시각을 남기고, 새 리프레시 토큰이 보이면 지운다', async () => {
     const { engine, ports, state, advance, now } = setup({
       accounts: [claudeAccount('a', 1)],

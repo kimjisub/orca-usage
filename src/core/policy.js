@@ -63,3 +63,12 @@ export function refuseManualRefresh(account, { orcaConnected, expiresAt, now = D
   if (isAbandoned(expiresAt, now)) return null
   return 'Orca 가 토큰을 관리 중입니다. 만료된 지 한 시간 넘은 계정만 손으로 갱신합니다'
 }
+
+// refresh token 이 이 안에 만료되면 재로그인을 요청한다. 갱신으로는 늘지 않는다(engine 의 warnRefreshExpiry).
+export const RELOGIN_WINDOW_MS = 3 * 24 * 3_600_000
+
+/** 재로그인이 필요한가. refresh token 만료가 3일 안이거나 이미 지났으면 그렇다. */
+export function needsRelogin(token, now = Date.now()) {
+  const deadline = token?.refresh?.expiresAt
+  return Boolean(token?.refresh?.revokedAt) || (typeof deadline === 'number' && deadline - now <= RELOGIN_WINDOW_MS)
+}
