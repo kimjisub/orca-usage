@@ -73,9 +73,8 @@ export function ResetModal({ row, activeCodexEmail, step, choice, typed, width }
       ) : null}
       {step === 2 ? (
         <>
-          <Text>{'확인을 위해 계정 이름을 그대로 입력하세요.'}</Text>
           <Text>
-            <Text color="gray">{'입력할 이름  '}</Text>
+            <Text color="gray">{'계정 이름 입력  '}</Text>
             <Text color="magenta" bold>{word}</Text>
           </Text>
           <Text> </Text>
@@ -84,8 +83,6 @@ export function ResetModal({ row, activeCodexEmail, step, choice, typed, width }
             <Text color={typed === word ? 'green' : 'white'}>{typed}</Text>
             <Text color="gray">{'_'}</Text>
           </Text>
-          <Text> </Text>
-          <Text color="gray">{'Enter: 다음  Backspace: 지우기'}</Text>
         </>
       ) : null}
       {step === 3 ? (
@@ -96,8 +93,6 @@ export function ResetModal({ row, activeCodexEmail, step, choice, typed, width }
           <Buttons labels={['취소', '사용']} choice={choice} />
         </>
       ) : null}
-      <Text> </Text>
-      <Text color="gray">{step === 2 ? 'Esc: 닫기' : '좌우: 고르기  Enter: 확정  Esc: 닫기'}</Text>
     </Box>
   )
 }

@@ -13,8 +13,6 @@ const MAX_BAR = 44
 // 지표마다 색을 고정한다. 위 막대와 아래 가중치 줄이 같은 색이라 눈으로 이어진다.
 const PART_COLOR = { behind: '#ff9f0a', now: 'green', reserve: 'cyan' }
 const BLOCKS = { behind: '█', now: '▒', reserve: '░' }
-// 설명까지 한 줄에 넣으려면 이만큼은 있어야 한다.
-const WIDE = 74
 
 const pad = (text, width) => text + ' '.repeat(Math.max(0, width - cellWidth(text)))
 const padStart = (text, width) => ' '.repeat(Math.max(0, width - cellWidth(text))) + text
@@ -49,12 +47,10 @@ function ScoreBar({ parts, width: barWidth }) {
 export function Score({ scored, activeId, useId, decision, selected, editing = false, height, columns }) {
   const ranked = [...scored].sort((a, b) => b.score.total - a.score.total)
   const parts = ranked[0]?.score.parts ?? []
-  const wide = columns >= WIDE
   // 남는 가로를 막대가 쓴다. 좁으면 줄이고 넓으면 늘려 기여도의 차이가 보인다.
   const barWidth = Math.min(MAX_BAR, Math.max(MIN_BAR, columns - ROW_CHROME - parts.length * 3))
-  // 계정 목록, 빈 줄, 지표 넷과 그 머리글, 전환 한 줄.
-  // 제목, 머리글, 빈 줄, 지표 머리글, 지표들, 설명(좁으면), 계산법, 전환 줄.
-  const fixed = 1 + 1 + 1 + 1 + parts.length + (wide ? 0 : 1) + 1 + 1
+  // 제목, 머리글, 빈 줄, 지표 머리글, 지표들, 전환 줄.
+  const fixed = 1 + 1 + 1 + 1 + parts.length + 1
   const listRows = Math.max(1, height - fixed)
   const shown = ranked.slice(0, listRows)
   // 계정을 다 세우고도 높이가 모자라면 빈 줄부터 뺀다. 넘치면 제목이 밀려난다.
@@ -64,10 +60,8 @@ export function Score({ scored, activeId, useId, decision, selected, editing = f
     <Box flexDirection="column">
       <Text wrap="truncate">
         <Text color="white">{'판정'}</Text>
-        {/* 좌우는 패널을 옮기는 키이기도 하다. 지금 어느 쪽으로 가는지 적는다. */}
-        {editing
-          ? <Text color="yellow" bold>{'  수정 중  좌우: 가중치 변경'}</Text>
-          : <Text color="gray">{'  점수: 세 지표 x 가중치의 합'}</Text>}
+        {/* 좌우가 탭 대신 값을 옮기는 중이다. 모르고 누르면 순위가 바뀐다. */}
+        {editing ? <Text color="yellow" bold>{'  수정 중'}</Text> : null}
       </Text>
       {/* 줄 끝 숫자 셋이 무엇인지. 아래 지표 표와 같은 순서다. */}
       <Text color="gray" wrap="truncate">
@@ -94,7 +88,7 @@ export function Score({ scored, activeId, useId, decision, selected, editing = f
 
       {spacer ? <Text> </Text> : null}
       <Text color="gray" wrap="truncate">
-        {`  ${pad('지표', LABEL_WIDTH)}가중치  ${shown.map((entry) => padStart(String(entry.index), 5)).join('')}${wide ? '   측정 대상' : ''}`}
+        {`  ${pad('지표', LABEL_WIDTH)}가중치  ${shown.map((entry) => padStart(String(entry.index), 5)).join('')}`}
       </Text>
       {parts.map((part, index) => {
         const on = index === selected
@@ -111,14 +105,9 @@ export function Score({ scored, activeId, useId, decision, selected, editing = f
                 {padStart(entry.score.parts[index]?.raw ?? '', 5)}
               </Text>
             ))}
-            {wide ? <Text color="gray">{`   ${part.what}`}</Text> : null}
           </Text>
         )
       })}
-      {wide ? null : <Text color="gray" wrap="truncate">{`  ${parts[selected]?.what ?? ''}`}</Text>}
-      <Text color="gray" wrap="truncate">
-        {`  ${parts[selected]?.how ?? ''}  ${editing ? '(0: 기본값  Enter, Esc: 수정 종료)' : '(위아래: 지표 선택  Enter: 수정)'}`}
-      </Text>
       <Text wrap="truncate">
         <Text color="gray">{'  전환  '}</Text>
         <Text color={decision?.action === 'switch' ? 'green' : 'gray'}>

@@ -91,7 +91,7 @@ function plan(height, accountCount) {
  */
 export function Schedule({ rows, historyById, now, height, columns }) {
   const schedule = buildSchedule(rows, historyById, now)
-  if (!schedule) return <Text color="gray">{'표본 없음 (조회가 쌓이면 표시)'}</Text>
+  if (!schedule) return <Text color="gray">{'표본 없음'}</Text>
 
   const legendRows = columns >= LEGEND_WIDTH ? 1 : 2
   const shown = plan(height - (legendRows - 1), schedule.today.length)

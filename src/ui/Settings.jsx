@@ -40,9 +40,9 @@ const HINT_WIDTH = LABEL_WIDTH + VALUE_WIDTH + 2
 
 export function Settings({ values, policy, selected, editing = false, height, columns }) {
   const inlineHint = columns >= HINT_WIDTH
-  // 머리글과 맺음 줄, 설명을 접었으면 그 한 줄을 뺀 만큼 항목이 선다. 넘치면
+  // 머리글, 설명을 접었으면 그 한 줄을 뺀 만큼 항목이 선다. 넘치면
   // 고른 항목이 보이도록 창을 민다.
-  const room = Math.max(1, height - 2 - (inlineHint ? 0 : 1))
+  const room = Math.max(1, height - 1 - (inlineHint ? 0 : 1))
   const start = Math.max(0, Math.min(selected - Math.floor(room / 2), SETTINGS_ROWS.length - room))
   const shown = SETTINGS_ROWS.slice(start, start + room)
   return (
@@ -50,9 +50,7 @@ export function Settings({ values, policy, selected, editing = false, height, co
       <Text wrap="truncate">
         <Text color="white">{'설정'}</Text>
         {/* 좌우는 패널을 옮기는 키이기도 하다. 지금 어느 쪽으로 가는지 적는다. */}
-        {editing
-          ? <Text color="yellow" bold>{'  수정 중  좌우: 값 변경'}</Text>
-          : <Text color="gray">{'  위아래: 항목 선택  Enter: 수정'}</Text>}
+        {editing ? <Text color="yellow" bold>{'  수정 중'}</Text> : null}
       </Text>
       {shown.map((item, offset) => {
         const on = start + offset === selected
@@ -75,9 +73,6 @@ export function Settings({ values, policy, selected, editing = false, height, co
       {inlineHint
         ? null
         : <Text color="gray" wrap="truncate">{`  ${SETTINGS_ROWS[selected]?.hint ?? ''}`}</Text>}
-      <Text color="gray" wrap="truncate">
-        {editing ? '  0: 기본값  Enter, Esc: 수정 종료' : '  좌우: 탭 이동'}
-      </Text>
     </Box>
   )
 }

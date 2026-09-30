@@ -63,6 +63,7 @@ const ACTIONS = [
   { key: 't', label: '토큰 갱신' },
   { key: 'a', label: '자동 전환' },
   { key: 'o', label: '창 미리 열기' },
+  { key: 'c', label: '리셋' },
   { key: 'w', label: '기간' },
   { key: 'x', label: '숨김' },
   { key: 'enter', label: '계정 전환' },
@@ -172,7 +173,6 @@ function TargetLine({ row, provider }) {
       {row
         ? <Text color="white">{`${row.index} ${row.email}`}</Text>
         : <Text color="white">{`${PROVIDER_LABEL[provider] ?? provider} 전체`}</Text>}
-      <Text color="gray">{'  (위아래로 변경)'}</Text>
     </Text>
   )
 }
@@ -416,22 +416,21 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   const nudgeWeight = useCallback((direction) => nudgeKey(WEIGHT_KEYS[scoreAt], direction), [nudgeKey, scoreAt])
 
   /**
-   * 리셋 크레딧. 되돌릴 수 없으므로 키 한 번으로 쓰지 않는다. 상세 탭에서 c 를
-   * 누르면 확인 창이 열리고 세 단계(요약, 이름 입력, 마지막 확인)를 지나야 쓴다
+   * 리셋 크레딧. 되돌릴 수 없으므로 키 한 번으로 쓰지 않는다. c 는 확인 창을
+   * 열 뿐이고 세 단계(요약, 이름 입력, 마지막 확인)를 지나야 쓴다
    * (ResetModal.jsx). Claude 는 서버가 Claude Code 의 요청만 받아 그쪽으로 안내한다.
    */
   const [resetFlow, setResetFlow] = useState(null)
   const openReset = useCallback(() => {
-    if (mode !== 'detail') return notify('리셋은 상세 탭에서 계정을 고르고 c 로 확인 창을 엽니다')
     if (!selectedRow) return notify('계정을 먼저 고르세요')
     if (selectedRow.provider === 'claude') {
-      return notify('Claude 리셋은 이 계정으로 연 Claude Code 에서 /usage-credits 로 씁니다')
+      return notify('Claude 리셋은 Claude Code 의 /usage-credits')
     }
-    if (selectedRow.system) return notify('Orca 가 관리하지 않는 Codex 로그인은 Orca 앱에서 리셋합니다')
-    if (!(selectedRow.credits?.available > 0)) return notify(`${selectedRow.email} 에 쓸 리셋 크레딧이 없습니다`)
+    if (selectedRow.system) return notify('Orca 관리 밖 로그인은 Orca 앱에서 리셋')
+    if (!(selectedRow.credits?.available > 0)) return notify('리셋 크레딧 없음')
     setResetFlow({ accountId: selectedRow.id, step: 1, choice: 0, typed: '' })
     return undefined
-  }, [mode, selectedRow, notify])
+  }, [selectedRow, notify])
 
   // 확인 창이 가리키는 계정. 창이 떠 있는 동안에도 백엔드 상태를 따라간다.
   const resetRow = resetFlow ? allRows.find((row) => row.id === resetFlow.accountId) : null
@@ -480,7 +479,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   const doUpdate = useCallback(async () => {
     if (hello && hello.source !== 'launchd') {
       // 직접 띄운 백엔드는 받은 뒤 다시 뜨지 않아 화면이 붙을 곳을 잃는다.
-      notify('수동 실행 백엔드는 여기서 업데이트하지 않습니다. 터미널에서 orca-usage update 뒤 다시 실행하세요')
+      notify('수동 실행 백엔드는 터미널에서 orca-usage update')
       return
     }
     const info = snapshot?.update
@@ -490,7 +489,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
       if (!checked) return
       if (checked.available) {
         updateAt.current = Date.now()
-        notify(`업데이트 있음 ${checked.installed} -> ${checked.latest}. u 를 한 번 더 누르면 받고 재시작합니다`)
+        notify(`업데이트 ${checked.installed} -> ${checked.latest}. u 한 번 더`)
       } else {
         notify(checked.error ? `업데이트 확인 실패: ${checked.error}` : '최신 버전입니다')
       }
@@ -498,7 +497,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     }
     if (Date.now() - updateAt.current > CONFIRM_WINDOW_MS) {
       updateAt.current = Date.now()
-      notify(`업데이트 ${info.installed} -> ${info.latest}. u 를 한 번 더 누르면 받고 재시작합니다`)
+      notify(`업데이트 ${info.installed} -> ${info.latest}. u 한 번 더`)
       return
     }
     updateAt.current = 0
@@ -550,12 +549,12 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     else if (key === 'X') setShowHidden((value) => !value)
     else if (key === 'o') {
       togglePolicy('keepAlive',
-        '창 미리 열기 켬: 닫힌 5h, 7d 창을 요청 하나로 엽니다',
-        '창 미리 열기 끔: 안 쓰는 계정의 리셋 시계가 멈춥니다')
+        '창 미리 열기 켬',
+        '창 미리 열기 끔')
     } else if (key === 'a') {
       togglePolicy('autoSwitch',
-        `자동 전환 켬: 사용 중 계정이 ${policy?.tuning.switchAt}% 를 넘고 다른 계정이 ${policy?.tuning.switchMargin}%p 이상 여유로우면 전환합니다`,
-        '자동 전환 끔: 계정 전환은 Enter 로만 합니다')
+        '자동 전환 켬',
+        '자동 전환 끔')
     } else if (key === 'w') {
       setRangeIndex((value) => {
         const next = (value + 1) % RANGES.length
@@ -621,14 +620,13 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
       const at = Date.now()
       if (at - quitAt.current < CONFIRM_WINDOW_MS) return exit()
       quitAt.current = at
-      return notify('한 번 더 누르면 종료합니다. q 는 바로 종료합니다')
+      return notify('한 번 더 누르면 종료')
     }
 
     /** 값을 고치는 화면이면 수정모드를 여닫고, 아니면 고른 계정으로 옮긴다. */
     const enter = () => {
       if (!tunes) return switchToSelected()
       setEditing((value) => {
-        if (!value) notify('수정 중: 좌우로 값 변경, Enter 나 Esc 로 종료')
         return !value
       })
       return undefined
@@ -794,7 +792,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     return (
       <Box flexDirection="column" height={screenRows} width={columns}>
         {header}
-        <Text color="red">{'  Orca 계정 없음. Orca 에 로그인한 계정이 있는지 확인하세요'}</Text>
+        <Text color="red">{'  Orca 계정 없음'}</Text>
       </Box>
     )
   }

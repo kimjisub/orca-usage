@@ -129,7 +129,7 @@ export function OverviewGraph({
             style={style}
           />
           ))
-        : <Empty text="표본 없음 (조회가 쌓이면 표시)" />}
+        : <Empty text="표본 없음" />}
 
     </Box>
   )
@@ -242,14 +242,14 @@ export function Graph({
   const all = (row.usage?.windows ?? []).map((w) => w.label)
   const keys = keysForMode(all, mode)
   if (!history?.length || keys.length === 0) {
-    return <Empty text={`${row.email}  표본 없음 (조회가 쌓이면 표시)`} />
+    return <Empty text={`${row.email}  표본 없음`} />
   }
 
   const dots = style === 'braille' && mode !== 'rate' ? DOTS_PER_CELL_X : 1
   const width = Math.max(10, columns - AXIS_WIDTH) * dots
   const { series, min, max, from, to } = chartSeries(history, keys, width, mode, rangeMs)
   if (!series.some((line) => line.some(isNumber))) {
-    return <Empty text={`${row.email}  표본 없음 (조회가 쌓이면 표시)`} />
+    return <Empty text={`${row.email}  표본 없음`} />
   }
 
   const plan = planPanels(height - 1, keys)

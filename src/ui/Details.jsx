@@ -1,7 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { cellWidth, clockAt, shortSpan } from '../core/format.js'
-import { needsRelogin } from '../core/policy.js'
 import { CLEARS_LABEL, liveGrants } from '../core/resets.js'
 
 // 한 줄에 제목과 값. 제목 폭을 맞춰 세로가 줄로 읽힌다. 한글은 두 칸이다.
@@ -99,12 +98,12 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
     // Codex 는 만료된 access token 을 다음 사용 때 스스로 갱신한다. 쓰지 않는 동안
     // 만료돼 있는 것은 정상이라 빨갛게 두지 않는다.
     const codexIdle = codex && token.expiresAt && token.expiresAt <= now
-    item('만료', codexIdle ? `${expiry.text}, 다음 사용 때 Codex 가 갱신` : expiry.text, codexIdle ? 'yellow' : expiry.color)
+    item('만료', expiry.text, codexIdle ? 'yellow' : expiry.color)
     const by = token.renewedBy === 'backend' ? ', orca-usage 백엔드' : token.renewedBy === 'other' ? ', Orca' : ''
     item('갱신 시각', token.renewedAt ? `${when(token.renewedAt, now)}${by}` : (codex ? '모름' : '백엔드 시작 이후 없음'),
       token.renewedAt ? 'white' : 'gray')
     if (codex) {
-      item('갱신 주체', 'Codex (orca-usage 는 읽기만 함)', 'gray')
+      item('갱신 주체', 'Codex', 'gray')
     } else {
       const owner = token.owner === 'retry'
         ? `orca-usage 백엔드, 갱신 실패 후 재시도 대기 (${when(token.retryAt, now)})`
@@ -121,16 +120,14 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
     if (codex) {
       // 기한이 없다. 쓰는 동안 Codex 가 갱신해 이어 가고, 1회용이라 다른 곳이 쓰면 끊긴다
       // (adapters/orca/codex-auth.js). 대신 브라우저 로그인 시각을 보인다.
-      item('기한', '없음, 쓰는 동안 Codex 가 갱신해 유지', 'gray')
+      item('기한', '없음', 'gray')
       item('로그인 시각', token.loginAt ? when(token.loginAt, now) : '모름', token.loginAt ? 'white' : 'gray')
     } else {
       const expiry = expiryLine(token.refresh?.expiresAt, now, SOON.refresh)
       item('기한', token.refresh?.expiresAt ? expiry.text : '모름 (키체인에 값 없음)', expiry.color)
-      item('기한 규칙', '로그인 때 정해짐, 갱신으로 연장 안 됨', 'gray')
     }
     const rotated = token.refresh?.rotatedAt
     item('교체 시각', rotated ? when(rotated, now) : '백엔드 시작 이후 없음', rotated ? 'white' : 'gray')
-    if (needsRelogin(token, now)) item('조치', 'Orca 에서 이 계정으로 재로그인', 'red')
   } else {
     item('상태', '읽기 실패', 'gray')
   }
@@ -184,10 +181,6 @@ function resetSection(row, { title, item, now }) {
     }
     const next = credits.nextExpiresAt ? `, 가장 이른 만료 ${when(credits.nextExpiresAt, now)}` : ''
     item('리셋 크레딧', `${credits.available}개${next}`, 'magenta')
-    item('비우는 창', '해당하는 사용 창 전부', 'gray')
-    item('사용', row.system
-      ? 'Orca 앱에서 (Orca 관리 밖 로그인)'
-      : 'c 로 확인 창을 열어 세 단계 확인 뒤 사용. 다른 계정을 쓰는 중이면 잠시 옮겨 쓰고 되돌림', 'white')
     return
   }
   const resets = row.resets
@@ -214,7 +207,6 @@ function resetSection(row, { title, item, now }) {
         : reasonText(session.reason)
     item('5시간 초기화', `${per}${state}`, session.available ? 'magenta' : 'gray')
   }
-  item('사용', '이 계정으로 연 Claude Code 에서 /usage-credits', 'white')
   item('확인 시각', `${when(resets.checkedAt, now)}${resets.error ? `, 마지막 확인 실패 (${resets.error})` : ''}`, 'gray')
 }
 
@@ -222,7 +214,7 @@ function resetSection(row, { title, item, now }) {
 function overviewLines(rows, now, columns = 90) {
   // 계정 칸이 남는 폭을 쓴다. 뒤의 세 칸은 값이라 잘리면 안 된다.
   const nameWidth = Math.max(12, Math.min(30, columns - 2 - 14 - 16 - 14))
-  const lines = [{ heading: '전체 계정', sub: '계정 선택 시 계정별 상세' }]
+  const lines = [{ heading: '전체 계정', sub: '' }]
   lines.push({ header: true, text: `${pad('계정', nameWidth)}${pad('사용량 조회', 14)}${pad('Access token', 16)}Refresh token` })
   for (const row of rows) {
     const got = row.fetchedAt ? `${shortSpan(now - row.fetchedAt)} 전` : '조회 전'
@@ -267,7 +259,7 @@ export function Details({ row, rows, history, log, now, height, columns, staleAf
   const start = Math.max(0, Math.min(offset, all.length - room))
   let lines = all.slice(start, start + room)
   const below = all.length - start - room
-  if (below > 0) lines = [...lines.slice(0, -1), { hint: `아래 ${below + 1}줄 더  (PgDn)` }]
+  if (below > 0) lines = [...lines.slice(0, -1), { hint: `+${below + 1}줄` }]
   const body = Math.max(10, columns - TOPIC_WIDTH - 2)
   return (
     <Box flexDirection="column">

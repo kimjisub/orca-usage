@@ -57,7 +57,7 @@ export function Log({ entries, now, offset = 0, height, columns }) {
         <Text color="gray">{`  최근 ${entries.length}건`}</Text>
         {/* 어디쯤 보고 있는지. 다 들어가면 굴릴 것이 없으므로 적지 않는다. */}
         {entries.length > rows
-          ? <Text color="cyan">{`  ${start + 1}-${start + shown.length}  위아래: 한 줄  PgUp, PgDn: 한 쪽`}</Text>
+          ? <Text color="cyan">{`  ${start + 1}-${start + shown.length}`}</Text>
           : null}
       </Text>
       {shown.map((entry, index) => {
