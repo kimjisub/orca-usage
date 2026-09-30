@@ -9,7 +9,7 @@ import { isMouseSequence, parseMouseClick, useMouseReporting } from './mouse.js'
 import { useBackend } from './useBackend.js'
 import { AccountBlock, blockHeight } from './AccountBlock.jsx'
 import { TotalBars, totalBarsHeight } from './TotalBars.jsx'
-import { AUTO_BLOCK_ROWS, Advice, AutoBlock, Graph, OverviewGraph, adviceHeight } from './Graph.jsx'
+import { Graph, OverviewGraph } from './Graph.jsx'
 import { Hit, HitRoot } from './Hit.jsx'
 import { Schedule } from './Schedule.jsx'
 import { Log, logVisibleRows } from './Log.jsx'
@@ -54,8 +54,6 @@ const WEIGHT_KEYS = ['weightBehind', 'weightNow', 'weightReserve']
 // 여섯 칸을 빼고 서른 칸은 있어야 선이 형태를 갖춘다. 화면 폭이 아니라 목록이
 // 쓰고 남는 칸으로 재는 이유는, 목록 폭이 긴 이메일을 따라 늘기 때문이다.
 const MIN_GRAPH_WIDTH = 36
-// 이보다 낮으면 추천을 첫 줄만 남긴다.
-const TIGHT_ROWS = 30
 // 라벨을 짧게 둔다. 한 줄에 다 실려야 해서 길면 통째로 밀린다. 패널 이동은
 // 좌우 화살표와 탭 클릭이라 키가 없다.
 const ACTIONS = [
@@ -96,7 +94,6 @@ function Header({ status, snapshot, hello, now, message }) {
           ? <Text color="yellow">{`백엔드 버전 ${hello.version}  `}</Text>
           : null}
         {snapshot.update?.available ? <Text color="cyan" bold>{'업데이트 있음 (u)  '}</Text> : null}
-        {snapshot.policy?.autoSwitch ? <Text color="green" bold>{'자동 전환  '}</Text> : null}
         {/* 터미널에서 직접 띄운 백엔드다. 그 터미널을 닫으면 사라진다. */}
         {hello && hello.source !== 'launchd' ? <Text color="gray">{'수동 실행 백엔드  '}</Text> : null}
         <Text color="gray">{countdown}</Text>
@@ -120,10 +117,24 @@ function Header({ status, snapshot, hello, now, message }) {
   )
 }
 
-/** 업데이트가 있으면 u 가 종료 앞에 들어간다. */
-const actionsFor = (updateAvailable) => (updateAvailable
-  ? [...ACTIONS.slice(0, -1), { key: 'u', label: '업데이트' }, ACTIONS.at(-1)]
-  : ACTIONS)
+// 켜고 끄는 키. 단축키 줄이 지금 상태를 함께 보인다.
+const TOGGLE_KEYS = { a: 'autoSwitch', o: 'keepAlive' }
+
+/**
+ * 단축키 줄의 항목. 켜고 끄는 것은 상태를 붙이고, 업데이트가 있으면 u 가 종료
+ * 앞에 들어간다.
+ */
+const actionsFor = (updateAvailable, policy) => {
+  const base = updateAvailable
+    ? [...ACTIONS.slice(0, -1), { key: 'u', label: '업데이트' }, ACTIONS.at(-1)]
+    : ACTIONS
+  return base.map((action) => {
+    const field = TOGGLE_KEYS[action.key]
+    if (!field || !policy) return action
+    const on = Boolean(policy[field])
+    return { ...action, label: `${action.label} ${on ? '켬' : '끔'}`, on }
+  })
+}
 
 /** 단축키 줄. 폭이 모자라면 항목을 통째로 다음 줄로 넘긴다(bars.js). */
 function ActionBar({ lines }) {
@@ -135,7 +146,8 @@ function ActionBar({ lines }) {
           {line.map((action) => (
             <Text key={action.key}>
               <Text color="cyan">{`[${action.key}]`}</Text>
-              <Text color="gray">{` ${action.label}  `}</Text>
+              <Text color={action.on ? 'green' : 'gray'} bold={Boolean(action.on)}>{` ${action.label}`}</Text>
+              <Text>{'  '}</Text>
             </Text>
           ))}
         </Text>
@@ -251,13 +263,6 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     () => allRows.filter((row) => showHidden || !row.hidden),
     [allRows, showHidden])
 
-  // 마지막 한 시간의 실패. 자동 블록이 이것만 알리고 자세한 것은 기록 탭이 맡는다.
-  const recentFailures = useMemo(() => {
-    const since = now - 3_600_000
-    return logEntries.filter((entry) => entry.at >= since
-      && (entry.kind === 'error' || entry.ok === false)).length
-  }, [logEntries, now])
-
   // 왼쪽 폭은 내용이 정한다. 비율로 잡으면 좁은 터미널에서 이름이 잘리고 넓은
   // 터미널에서는 빈 자리가 남는다. 오른쪽 그래프가 나머지를 다 쓴다.
   // 막대 줄은 들여쓰기 5, 창 이름 7, 막대, 퍼센트 5, 남은 시간 9 와 상자의 테두리
@@ -326,12 +331,11 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   const tabs = wide ? GRAPH_TABS : [ACCOUNTS_TAB, ...GRAPH_TABS]
   // 넓어지면 '계정' 탭이 없다. 목록이 왼쪽에 늘 서 있으므로 사용량을 그린다.
   const mode = wide && graphMode === 'accounts' ? 'level' : graphMode
-  const adviceCompact = screenRows < TIGHT_ROWS
   const panelWidth = wide ? listWidth : columns
   // 탭이 있는 상자(좁으면 유일한 상자)의 안쪽 폭. 테두리 둘과 패딩 둘을 뺀다.
   const graphWidth = (wide ? columns - panelWidth : columns) - 4
   const tabView = tabWindow(tabs, mode, graphWidth)
-  const actionRows = actionLines(actionsFor(Boolean(snapshot?.update?.available)), columns)
+  const actionRows = actionLines(actionsFor(Boolean(snapshot?.update?.available), snapshot?.policy), columns)
   // 좁은 화면에서 계정을 대상으로 그리는 탭은 대상 줄 하나를 더 쓴다.
   const showTarget = !wide && TARGETED.has(mode)
 
@@ -722,7 +726,6 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     }
     // 좁은 화면에서는 목록이 탭 줄 아래에 선다.
     const budget = layout.panelHeight - 2 - (wide ? 0 : 1)
-      - adviceHeight(adviceCompact) - AUTO_BLOCK_ROWS
     if (rowsIn(0, count) <= budget) {
       viewStart.current = 0
       return { start: 0, end: count }
@@ -744,7 +747,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
     }
     viewStart.current = start
     return { start, end }
-  }, [rows, selected, totalRowsFor, adviceCompact, layout.panelHeight, wide])
+  }, [rows, selected, totalRowsFor, layout.panelHeight, wide])
 
   const onClick = useCallback((row, column) => {
     // 마우스는 1 부터 세고 배치 좌표는 0 부터 센다.
@@ -832,17 +835,6 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
           </React.Fragment>
         )
       })}
-      <Box flexGrow={1} flexDirection="column" justifyContent="flex-end">
-        <Advice tip={tip} compact={adviceCompact} />
-        <AutoBlock
-          poll={snapshot.poll}
-          orcaConnected={snapshot.orca?.connected}
-          keepAlive={policy?.keepAlive}
-          autoSwitch={policy?.autoSwitch}
-          failures={recentFailures}
-          now={now}
-        />
-      </Box>
     </>
   )
 

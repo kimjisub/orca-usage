@@ -1,7 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { chartSeries, colorForSeries, keysForMode, overviewSeries } from './chart.js'
-import { shortSpan } from '../core/format.js'
 import { AXIS_WIDTH, Chart } from './Chart.jsx'
 import { DOTS_PER_CELL_X } from './braille.js'
 
@@ -132,106 +131,6 @@ export function OverviewGraph({
         : <Empty text="표본 없음" />}
 
     </Box>
-  )
-}
-
-/** 시간을 한두 단위로 줄여 쓴다. 요약 줄은 자리가 좁다. */
-function hours(value) {
-  if (value == null) return '여유'
-  if (value < 1) return `${Math.round(value * 60)}m`
-  if (value < 48) return `${Math.round(value)}h`
-  return `${Math.round(value / 24)}d`
-}
-
-/** 추천 한 줄. 라벨 자리를 Box 로 고정한다. 한글은 두 칸이라 padEnd 로는 안 맞는다. */
-function Pick({ label, entry, detail, tone = 'white' }) {
-  return (
-    <Box>
-      <Box width={11} flexShrink={0}>
-        <Text color="gray">{label}</Text>
-      </Box>
-      {entry
-        ? (
-          <Text wrap="truncate">
-            <Text color={colorForSeries(entry.index - 1)} bold>{String(entry.index)}</Text>
-            <Text color={tone}>{`  ${detail}`}</Text>
-          </Text>
-          )
-        : <Text color="gray">{'-'}</Text>}
-    </Box>
-  )
-}
-
-/**
- * 추천 요약. 자리가 좁으면 지금 붙을 곳과 자동 전환 상태만 남긴다.
- *
- * 계정 한 줄이 '큰 작업' 이나 '아낄 계정' 보다 급하다. 목록이 잘려 계정이
- * 안 보이면 추천에 적힌 번호가 화면 어디에도 없게 된다.
- */
-/** Advice 가 차지하는 줄 수. 목록 예산을 잴 때 렌더와 같은 값을 쓴다. */
-export const adviceHeight = (compact) => (compact ? 1 : 3)
-
-export function Advice({ tip, compact = false }) {
-  return (
-    <>
-      {tip?.allBlocked
-        ? (
-          <Text wrap="truncate">
-            <Text color="red" bold>{'지금 사용  '}</Text>
-            <Text color="gray">
-              {tip.soonestUnblock
-                ? `전 계정 한도 도달, ${tip.soonestUnblock.index}번 ${hours((tip.soonestUnblock.shortResetIn ?? 0) / 3600000)} 뒤 해제`
-                : '전 계정 한도 도달'}
-            </Text>
-          </Text>
-          )
-        : <Pick label="지금 사용" entry={tip?.use} detail={tip?.useReason ?? ''} />}
-      {compact
-        ? null
-        : (
-          <>
-            <Pick
-              label="큰 작업"
-              entry={tip?.heavy}
-              detail={tip?.heavy
-                ? `주간 ${Math.round(tip.heavy.reserve)}% 남음, 현재 속도로 ${hours(tip.heavy.runwayHours)}`
-                : ''}
-            />
-            {tip?.avoid
-              ? <Pick label="아낄 계정" entry={tip.avoid} detail={`주간 ${Math.round(tip.avoid.weeklyPct)}% 사용`} tone="gray" />
-              : <Text> </Text>}
-          </>
-          )}
-    </>
-  )
-}
-
-/** 자동 블록이 차지하는 줄 수. 목록 예산을 잴 때 렌더와 같은 값을 쓴다. */
-export const AUTO_BLOCK_ROWS = 2
-
-/**
- * 이 도구가 스스로 하는 일의 현재 상태. 조회 한 줄, 켜진 기능 한 줄이다.
- *
- * 무슨 일이 있었는지는 기록 탭이 자세히 보여 준다. 여기는 무엇이 켜져 있고
- * 마지막 조회가 언제인지만 둔다. 한 줄에 몰면 좁은 목록에서 뒤쪽이 잘린다.
- */
-export function AutoBlock({ poll, orcaConnected, keepAlive, autoSwitch, failures, now }) {
-  const lastAt = poll?.lastAt ?? 0
-  return (
-    <>
-      <Text wrap="truncate">
-        <Text color="gray">{'조회  '}</Text>
-        <Text color="white">
-          {lastAt ? `${shortSpan(now - lastAt)} 전, ${orcaConnected ? 'Orca 경유' : '직접 조회'}` : '대기'}
-        </Text>
-        {failures ? <Text color="red">{`  최근 1시간 실패 ${failures}건`}</Text> : null}
-      </Text>
-      <Text wrap="truncate">
-        <Text color="gray">{'자동  '}</Text>
-        <Text color={keepAlive ? 'green' : 'gray'}>{`창 미리 열기 ${keepAlive ? '켬' : '끔'}`}</Text>
-        <Text color={autoSwitch ? 'green' : 'gray'}>{`  계정 전환 ${autoSwitch ? '켬' : '끔'}`}</Text>
-      </Text>
-    </>
   )
 }
 
