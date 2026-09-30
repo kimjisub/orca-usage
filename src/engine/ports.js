@@ -19,6 +19,8 @@
  * @property {(provider: string, accountId: string) => Promise<void>} select
  * @property {(options: {refreshUsage: boolean}) => Promise<object>} fetchLimits
  *   Orca 가 들고 있는 계정별 한도 (adapters/orca/orca-limits.js 의 모양)
+ * @property {(accountId: string) => Promise<{outcome: string, reason?: string, restored: boolean}>} [consumeCodexResetCredit]
+ *   Codex 리셋 크레딧 하나를 Orca 로 쓴다. 다른 계정이면 옮겨 쓰고 되돌린다
  * @property {(accounts: Account[]) => Map<string, {expiresAt: number|null, refreshedAt: number|null, refresh: string|null}>} [codexTokens]
  *   Codex 계정들의 토큰 만료와 마지막 갱신. 읽기만 한다
  *
@@ -30,6 +32,8 @@
  *   액세스 토큰의 만료, 리프레시 토큰의 지문(core/fingerprint.js)과 만료. 갱신하지 않는다
  * @property {(accountId: string) => Promise<{refreshed: boolean, expiresAt: number|null, note: string|null, authFailed: boolean, revoked: boolean}>} refresh
  * @property {(accountId: string) => Promise<{ok: boolean, reason?: string, refreshed?: boolean}>} openWindow
+ * @property {(accountId: string) => Promise<{status: object|null, error: string|null}>} [resetStatus]
+ *   Claude 리셋권과 세션 리셋의 상태. 읽기만 한다
  *
  * @typedef {object} StorePort
  * @property {() => object} loadCache

@@ -17,8 +17,9 @@ const LOG_PATH = path.join(STATE_DIR, 'log.json')
  * 종류(kind)는 화면에서 색과 이름으로 갈린다.
  *   poll     사용량 조회
  *   token    OAuth 토큰 갱신
- *   cycle    5h 창 사이클 트리거
+ *   cycle    창 열기
  *   switch   계정 전환. 자동과 수동을 both 로 구분한다
+ *   reset    리셋 크레딧 사용과 리셋권 추가
  *   error    위 어느 것이든 실패
  */
 let entries = null

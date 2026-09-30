@@ -52,7 +52,7 @@ function parseArgs(argv) {
 // ---- status -------------------------------------------------------------
 
 /** 기록 중 사람이 알아야 할 것. 조회와 창 열기는 늘 돌아 여기서는 뺀다. */
-const NOTABLE = new Set(['switch', 'token', 'error'])
+const NOTABLE = new Set(['switch', 'token', 'reset', 'error'])
 
 function updateLine(update) {
   if (!update) return '아직 확인 전'

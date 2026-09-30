@@ -9,6 +9,18 @@ import { pollOnce, rowsFromCache } from './poller.js'
 const ACTIVE_POLL_MS = 5_000
 // 추천과 점수는 시각에 따라 변한다(창이 흐른 비율). 조회가 없어도 이만큼마다 다시 잰다.
 const DERIVE_MS = 60_000
+// Claude 리셋 상태를 다시 묻는 간격. 권은 자주 바뀌지 않고, 이 조회도 사용량 API
+// 와 같은 호출 예산(계정당 5분에 5회)에서 나간다.
+const RESET_STATUS_MS = 30 * 60_000
+// Codex 리셋 크레딧 결과를 기록 문장으로.
+const RESET_OUTCOME = {
+  reset: '리셋 크레딧 사용, 사용 창 초기화',
+  nothingToReset: '리셋 크레딧 안 씀, 비울 사용량 없음',
+  noCredit: '리셋 크레딧 없음',
+  alreadyRedeemed: '이미 처리된 리셋 요청',
+  rejected: '리셋 크레딧 안 씀, 그사이 상태가 바뀜. 다시 시도하세요',
+}
+
 // refresh token 만료 경고 단계. 작은 것부터 보고 처음 맞는 단계를 쓴다.
 const REFRESH_WARN_STAGES = [
   { label: '만료', ms: 0 },
@@ -87,6 +99,8 @@ export class Engine extends EventEmitter {
     this.refreshRevokedAt = new Map()
     // 리프레시 토큰의 만료. Claude 만 키체인에 있고 Codex 는 알 수 없다.
     this.refreshExpiry = new Map()
+    // Claude 리셋권과 세션 리셋 상태. 계정마다 {status, error, at}.
+    this.resetStatus = new Map()
     // 만료 경고를 어디까지 보냈나. 계정마다 "기한:단계" 를 적어 같은 단계를 두 번 알리지 않는다.
     this.refreshWarned = new Map()
   }
@@ -214,6 +228,7 @@ export class Engine extends EventEmitter {
       this.noteTokens(fresh)
       this.noteAuth(fresh)
       await this.reauth()
+      await this.readResets()
       this.readCodexTokens()
       if (this.policy.keepAlive) await this.openWindows()
       this.derive()
@@ -719,7 +734,9 @@ export class Engine extends EventEmitter {
       daemon: { ...this.meta },
       orca: { ...this.orcaState },
       poll: { ...this.pollState, intervalMs: tuning().intervalMs },
-      accounts: this.viewRows().map((row) => ({ ...row, hidden: hidden.has(row.id), token: this.tokenOf(row) })),
+      accounts: this.viewRows().map((row) => ({
+        ...row, hidden: hidden.has(row.id), token: this.tokenOf(row), resets: this.resetsOf(row),
+      })),
       active: { ...this.active },
       policy: this.policyView(),
       advice: this.advice,
@@ -774,6 +791,77 @@ export class Engine extends EventEmitter {
     const when = left <= 0 ? '만료됨' : `${stage.label} 이내 만료`
     this.note('error', `refresh token ${when}, Orca 에서 재로그인 필요`, { email: account.email, ok: false })
     this.alert('재로그인 필요', `${account.email}: refresh token ${when}. Orca 에서 이 계정으로 다시 로그인하세요`)
+  }
+
+  /**
+   * Claude 계정의 리셋 상태를 읽는다. 30분에 한 번이고, 5h 가 한도에 닿은 계정은
+   * 조회마다 본다. 세션 리셋은 한도에 닿아야 열린다(not_at_wall).
+   */
+  async readResets() {
+    const read = this.ports.keychain.resetStatus
+    if (!read) return
+    const now = this.now()
+    for (const account of this.accounts) {
+      if (account.provider !== 'claude') continue
+      const seen = this.resetStatus.get(account.id)
+      const row = this.rows.find((entry) => entry.id === account.id)
+      const atWall = (row?.usage?.windows ?? []).some((window) => window.label === '5h' && window.pct >= 100)
+      if (seen && !atWall && now - seen.at < RESET_STATUS_MS) continue
+      let result
+      try {
+        result = await read(account.id)
+      } catch (error) {
+        result = { status: null, error: error.message }
+      }
+      // 못 읽었으면 들고 있던 상태를 둔다. 권이 사라진 것이 아니다.
+      const status = result.status ?? seen?.status ?? null
+      this.resetStatus.set(account.id, { status, error: result.error ?? null, at: now })
+      const count = (value) => (value?.grants?.list ?? []).reduce((sum, grant) => sum + grant.resetsLeft, 0)
+      if (result.status && seen?.status && count(result.status) > count(seen.status)) {
+        this.note('reset', `Claude 리셋권 추가, 남은 횟수 ${count(result.status)}`, { email: account.email })
+      }
+    }
+  }
+
+  /** 한 계정의 리셋 상태. 화면이 그린다. Codex 는 row.credits 가 맡는다. */
+  resetsOf(row) {
+    if (row.provider !== 'claude') return null
+    const seen = this.resetStatus.get(row.id)
+    return seen ? { ...seen.status, error: seen.error, checkedAt: seen.at } : null
+  }
+
+  /**
+   * Codex 리셋 크레딧 하나를 쓴다. Claude 는 이 도구가 쓰지 않는다. 서버가 Claude
+   * Code 에서 온 요청만 받으므로 그 계정의 Claude Code 에서 /usage-credits 로 한다.
+   */
+  async useResetCredit(accountId) {
+    const account = this.accounts.find((entry) => entry.id === accountId)
+    if (!account) throw new Error('계정을 찾지 못했습니다')
+    if (account.provider === 'claude') {
+      throw new Error('Claude 리셋은 그 계정으로 연 Claude Code 에서 /usage-credits 로 씁니다')
+    }
+    if (account.system) throw new Error('Orca 가 관리하지 않는 Codex 로그인은 Orca 앱에서 씁니다')
+    const row = this.rows.find((entry) => entry.id === accountId)
+    if (!(row?.credits?.available > 0)) throw new Error('이 계정에 쓸 리셋 크레딧이 없습니다')
+    const consume = this.ports.orca.consumeCodexResetCredit
+    if (!consume) throw new Error('이 설치에서는 리셋 크레딧을 쓸 수 없습니다')
+
+    let result
+    try {
+      result = await consume(accountId)
+    } catch (error) {
+      const back = error.restored === false ? ', 원래 Codex 계정으로 못 돌아감' : ''
+      this.note('error', `리셋 크레딧 실패: ${error.message}${back}`, { email: account.email, ok: false })
+      if (error.restored === false) this.alert('Codex 계정 확인 필요', `${account.email} 리셋 뒤 원래 계정으로 돌아가지 못했습니다`)
+      throw error
+    }
+    const text = RESET_OUTCOME[result.outcome] ?? `리셋 결과 모름: ${result.outcome}`
+    const ok = result.outcome === 'reset'
+    this.note(ok ? 'reset' : 'error', result.restored ? text : `${text}, 원래 Codex 계정으로 못 돌아감`,
+      { email: account.email, ok: ok && result.restored })
+    if (!result.restored) this.alert('Codex 계정 확인 필요', `${account.email} 리셋 뒤 원래 계정으로 돌아가지 못했습니다`)
+    this.runPoll({ force: true })
+    return { ...result, text }
   }
 
   alert(title, body) {

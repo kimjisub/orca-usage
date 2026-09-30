@@ -25,7 +25,7 @@ function readMetadata() {
   return { endpoint: unix.endpoint, authToken: metadata.authToken }
 }
 
-export function call(method, params = {}) {
+export function call(method, params = {}, { timeoutMs = TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
     let metadata
     try {
@@ -39,7 +39,7 @@ export function call(method, params = {}) {
     const timer = setTimeout(() => {
       socket.destroy()
       reject(new Error(`${method} 응답이 없습니다`))
-    }, TIMEOUT_MS)
+    }, timeoutMs)
 
     let settled = false
     const done = (error, value) => {

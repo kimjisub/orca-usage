@@ -8,6 +8,7 @@ const KIND = {
   token: { label: '토큰', color: 'cyan' },
   cycle: { label: '창 열기', color: 'green' },
   switch: { label: '전환', color: 'yellow' },
+  reset: { label: '리셋', color: 'magenta' },
   error: { label: '실패', color: 'red' },
 }
 // 가장 긴 이름(사용량 조회)이 열한 칸이다. 한글은 두 칸이라 padEnd 로는 안 맞는다.

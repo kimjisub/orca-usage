@@ -308,3 +308,74 @@ describe('상세', () => {
   })
 })
 
+
+describe('리셋', () => {
+  const grant = (left) => ({
+    grants: { eligible: true, reason: null, atLimit: false, list: [{ id: 'g1', label: 'launch', resetsLeft: left, resetsTotal: 1, clears: ['five_hour', 'seven_day'], usableNow: left > 0, useRequiresLimit: false, paused: false, startsAt: null, endsAt: null }] },
+    session: { eligible: false, reason: 'not_at_wall', available: false, nextAvailableAt: null, perWeek: 1 },
+  })
+
+  test('Claude 리셋 상태를 30분에 한 번 읽어 상태에 싣는다', async () => {
+    const { engine, state, calls, advance } = setup({ accounts: [claudeAccount('a', 1)], usage: { a: limits(T0) } })
+    state.resets.a = { status: grant(1), error: null }
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    await engine.cycle()
+    expect(calls.resetStatus).toEqual(['a'])
+    expect(engine.snapshot().accounts[0].resets.grants.list[0].resetsLeft).toBe(1)
+    advance(31 * 60_000)
+    await engine.cycle()
+    expect(calls.resetStatus).toEqual(['a', 'a'])
+  })
+
+  test('5h 가 한도에 닿은 계정은 조회마다 읽는다. 세션 리셋은 그때 열린다', async () => {
+    const { engine, calls } = setup({ accounts: [claudeAccount('a', 1)], usage: { a: limits(T0, { short: 100 }) } })
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    await engine.cycle()
+    expect(calls.resetStatus).toEqual(['a', 'a'])
+  })
+
+  test('못 읽으면 들고 있던 상태를 둔다', async () => {
+    const { engine, state, advance } = setup({ accounts: [claudeAccount('a', 1)], usage: { a: limits(T0) } })
+    state.resets.a = { status: grant(1), error: null }
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    state.resets.a = { status: null, error: '호출 예산 소진' }
+    advance(31 * 60_000)
+    await engine.cycle()
+    const resets = engine.snapshot().accounts[0].resets
+    expect(resets.grants.list[0].resetsLeft).toBe(1)
+    expect(resets.error).toBe('호출 예산 소진')
+  })
+
+  test('Claude 계정의 리셋은 쓰지 않고 Claude Code 로 안내한다', async () => {
+    const { engine, calls } = setup({ accounts: [claudeAccount('a', 1)], usage: { a: limits(T0) } })
+    await engine.start({ schedule: false })
+    await expect(engine.useResetCredit('a')).rejects.toThrow('/usage-credits')
+    expect(calls.consume).toEqual([])
+  })
+
+  test('크레딧이 없는 Codex 계정은 Orca 를 부르지 않는다', async () => {
+    const { engine, calls } = setup({ accounts: [codexAccount('x', 1)], usage: { x: limits(T0) } })
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    await expect(engine.useResetCredit('x')).rejects.toThrow('크레딧이 없습니다')
+    expect(calls.consume).toEqual([])
+  })
+
+  test('Codex 크레딧을 쓰면 결과를 기록하고, 원래 계정으로 못 돌아가면 알린다', async () => {
+    const { engine, state, calls } = setup({ accounts: [codexAccount('x', 1)], usage: { x: { ...limits(T0), credits: { available: 2, nextExpiresAt: null } } } })
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    const done = await engine.useResetCredit('x')
+    expect(calls.consume).toEqual(['x'])
+    expect(done.outcome).toBe('reset')
+    expect(state.log.some((entry) => entry.kind === 'reset' && entry.text.startsWith('리셋 크레딧 사용'))).toBe(true)
+
+    state.consumeResult = { outcome: 'reset', restored: false }
+    await engine.useResetCredit('x')
+    expect(state.log.some((entry) => entry.text.includes('원래 Codex 계정으로 못 돌아감'))).toBe(true)
+    expect(calls.notify.some((entry) => JSON.stringify(entry).includes('계정 확인 필요'))).toBe(true)
+  })
+})

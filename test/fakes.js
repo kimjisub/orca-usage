@@ -31,7 +31,7 @@ export function limits(now, { short = 10, weekly = 10, weeklyResetIn = 3 * 24 * 
 }
 
 export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {}, policy = {}, codexKnown = true }) {
-  const calls = { select: [], refresh: [], peek: [], openWindow: [], notify: [], fetchLimits: 0 }
+  const calls = { select: [], refresh: [], peek: [], openWindow: [], notify: [], fetchLimits: 0, resetStatus: [], consume: [] }
   const state = {
     accounts,
     usage,
@@ -39,6 +39,8 @@ export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {},
     expiry: { ...expiry },
     refresh: {},
     refreshExpiry: {},
+    resets: {},
+    consumeResult: { outcome: 'reset', restored: true },
     policy: {
       autoSwitch: false, keepAlive: false, notifications: true, tuning: {}, hiddenIds: [], lastSwitchAt: 0,
       ...policy,
@@ -57,6 +59,11 @@ export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {},
       select: async (provider, id) => {
         calls.select.push({ provider, id })
         state.active[provider] = id
+      },
+      consumeCodexResetCredit: async (id) => {
+        calls.consume.push(id)
+        if (state.consumeResult instanceof Error) throw state.consumeResult
+        return state.consumeResult
       },
       fetchLimits: async () => {
         calls.fetchLimits += 1
@@ -91,6 +98,10 @@ export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {},
         state.expiry[id] = now() + 8 * HOUR
         state.refresh[id] = `${state.refresh[id] ?? `r-${id}`}+`
         return { refreshed: true, expiresAt: state.expiry[id], note: null, authFailed: false, revoked: false }
+      },
+      resetStatus: async (id) => {
+        calls.resetStatus.push(id)
+        return state.resets[id] ?? { status: null, error: '없음' }
       },
       openWindow: async (id) => {
         calls.openWindow.push(id)

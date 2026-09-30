@@ -35,6 +35,7 @@ export function createServer(engine, { hello, onShutdown, maxPending = MAX_PENDI
     setTuning: ({ key, value }) => engine.setTuning(key, value),
     resetTuning: ({ key }) => engine.resetTuning(key),
     setHidden: ({ accountId, hidden }) => engine.setHidden(accountId, Boolean(hidden)),
+    useResetCredit: ({ accountId }) => engine.useResetCredit(accountId),
     checkUpdate: () => engine.checkUpdate(),
     update: () => engine.update(),
     shutdown: () => {

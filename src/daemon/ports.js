@@ -5,6 +5,8 @@ import { activeAccountIds, selectClaudeAccount } from '../adapters/orca/orca-rpc
 import { ensureToken, fetchUsage, normalize } from '../adapters/keychain/oauth.js'
 import { openWindow } from '../adapters/keychain/keepalive.js'
 import { peekToken, refreshNow } from '../adapters/keychain/tokens.js'
+import { readResetStatus } from '../adapters/keychain/resets.js'
+import { consumeCodexResetCredit } from '../adapters/orca/codex-reset.js'
 import {
   appendHistory, loadCache, loadHistory, saveCache, saveHistory, updateCache,
 } from '../adapters/store/store.js'
@@ -28,6 +30,7 @@ export function createPorts({ updater } = {}) {
         ? selectCodexAccount(accountId)
         : selectClaudeAccount(accountId)),
       fetchLimits: fetchOrcaLimits,
+      consumeCodexResetCredit,
       // 시스템 기본 로그인은 Orca 의 계정 폴더가 아니라 Codex 자신의 home 에 있다.
       codexTokens: (accounts) => new Map(accounts.map((account) => [
         account.id, codexTokenInfo(account.system ? null : account.id),
@@ -35,6 +38,7 @@ export function createPorts({ updater } = {}) {
     },
     keychain: {
       ensureToken, fetchUsage, normalize, peekToken, refresh: refreshNow, openWindow,
+      resetStatus: readResetStatus,
     },
     store: {
       loadCache, saveCache, updateCache, loadHistory, saveHistory, appendHistory,
