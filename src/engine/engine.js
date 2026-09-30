@@ -290,8 +290,10 @@ export class Engine extends EventEmitter {
     if (shape === this.lastShape) return
     this.lastShape = shape
     const viaOrca = fresh.filter((row) => row.source === 'orca').length
-    const how = viaOrca === fresh.length ? 'Orca' : `Orca ${viaOrca}, 직접 ${fresh.length - viaOrca}`
-    this.note('poll', `사용량 조회: ${fresh.length}개 계정, ${how}`)
+    const how = viaOrca === fresh.length ? 'Orca 경유'
+      : viaOrca === 0 ? '직접 조회 (Orca 미수신)'
+        : `Orca 경유 ${viaOrca}, 직접 조회 ${fresh.length - viaOrca}`
+    this.note('poll', `사용량 조회 ${fresh.length}개 계정, ${how}`)
   }
 
   /** Orca 가 꺼져 직접 조회하는 동안 그 경로가 갱신한 토큰을 적는다. */

@@ -53,8 +53,12 @@ export function Score({ scored, activeId, useId, decision, selected, editing = f
   // 남는 가로를 막대가 쓴다. 좁으면 줄이고 넓으면 늘려 기여도의 차이가 보인다.
   const barWidth = Math.min(MAX_BAR, Math.max(MIN_BAR, columns - ROW_CHROME - parts.length * 3))
   // 계정 목록, 빈 줄, 지표 넷과 그 머리글, 전환 한 줄.
-  const listRows = Math.max(1, height - parts.length - 4)
+  // 제목, 머리글, 빈 줄, 지표 머리글, 지표들, 설명(좁으면), 계산법, 전환 줄.
+  const fixed = 1 + 1 + 1 + 1 + parts.length + (wide ? 0 : 1) + 1 + 1
+  const listRows = Math.max(1, height - fixed)
   const shown = ranked.slice(0, listRows)
+  // 계정을 다 세우고도 높이가 모자라면 빈 줄부터 뺀다. 넘치면 제목이 밀려난다.
+  const spacer = height >= fixed + shown.length
 
   return (
     <Box flexDirection="column">
@@ -64,6 +68,11 @@ export function Score({ scored, activeId, useId, decision, selected, editing = f
         {editing
           ? <Text color="yellow" bold>{'  수정 중  좌우: 가중치 변경'}</Text>
           : <Text color="gray">{'  점수: 세 지표 x 가중치의 합'}</Text>}
+      </Text>
+      {/* 줄 끝 숫자 셋이 무엇인지. 아래 지표 표와 같은 순서다. */}
+      <Text color="gray" wrap="truncate">
+        {/* 계정 줄은 표시 둘, 번호 하나, 공백, 이름, 점수 세 칸, 공백 둘 뒤에 막대가 온다. */}
+        {`${pad('  계정', 2 + 1 + 1 + NAME_WIDTH - 3)}${pad('점수', 5)}${' '.repeat(barWidth)}  ${parts.map((part) => padStart(BLOCKS[part.key], 2)).join(' ')}`}
       </Text>
       {shown.map((entry) => (
         <Text key={entry.row.id} wrap="truncate">
@@ -83,7 +92,7 @@ export function Score({ scored, activeId, useId, decision, selected, editing = f
         </Text>
       ))}
 
-      <Text> </Text>
+      {spacer ? <Text> </Text> : null}
       <Text color="gray" wrap="truncate">
         {`  ${pad('지표', LABEL_WIDTH)}가중치  ${shown.map((entry) => padStart(String(entry.index), 5)).join('')}${wide ? '   측정 대상' : ''}`}
       </Text>

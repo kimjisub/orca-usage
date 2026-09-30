@@ -108,7 +108,7 @@ export function OverviewGraph({
       <Text wrap="truncate">
         {/* 어느 provider 의 합인지 적는다. Claude 와 Codex 는 창이 달라 같은
             제목으로는 무엇을 보고 있는지 알 수 없다. */}
-        <Text color="white">{`${label ? `${label} ` : ''}${mode === 'rate' ? '전체 소비' : '전체 사용량'}`}</Text>
+        <Text color="white">{`${label ? `${label} ` : ''}전체`}</Text>
         <Text color="gray">{`  ${MODE_LABEL[mode]}`}</Text>
         <Text color="cyan">{`  ${rangeLabel}`}</Text>
       </Text>
