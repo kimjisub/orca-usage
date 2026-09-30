@@ -3,15 +3,15 @@ import { Text } from 'ink'
 import { colorForSeries } from './chart.js'
 import { shortSpan } from '../core/format.js'
 import { needsRelogin } from '../core/policy.js'
+import { resetLines } from '../core/resets.js'
 import { Bar } from './Bar.jsx'
 
 export const ACTIVE_MARK = '*'
 
 /** 계정 하나가 차지하는 줄 수. 클릭 좌표를 행으로 되짚을 때 쓴다. */
-export function blockHeight(row, gap = true) {
+export function blockHeight(row, gap = true, now = Date.now()) {
   const windows = (row.usage?.windows ?? []).length
-  const credits = row.credits?.available ? 1 : 0
-  return 1 + (windows || 1) + credits + (gap ? 1 : 0) // 머리글 + 창들(없으면 안내 1줄) + 크레딧 + 빈 줄
+  return 1 + (windows || 1) + resetLines(row, now).length + (gap ? 1 : 0) // 머리글 + 창들(없으면 안내 1줄) + 리셋 + 빈 줄
 }
 
 /**
@@ -76,10 +76,10 @@ export function AccountBlock({
           ))
         : <Text color="gray">{'     사용량 조회 전'}</Text>}
 
-      {/* 크레딧을 쓰면 짧은 창이 즉시 비므로, 남은 개수가 곧 몇 번 더 버티느냐다. */}
-      {row.credits?.available
-        ? <Text color="gray">{`     리셋 크레딧 ${row.credits.available}개`}</Text>
-        : null}
+      {/* 쓸 수 있는 리셋. 쓰면 창이 즉시 비므로 몇 번 더 버티느냐와 같다. */}
+      {resetLines(row, now).map((line) => (
+        <Text key={line} color="magenta">{`     ${line}`}</Text>
+      ))}
 
       {/* 목록의 마지막 블록은 빈 줄을 뺀다. 낮은 화면에서 그 한 줄이 추천을 밀어낸다. */}
       {gap ? <Text> </Text> : null}

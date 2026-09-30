@@ -2,6 +2,7 @@ import React from 'react'
 import { Box, Text } from 'ink'
 import { cellWidth, clockAt, shortSpan } from '../core/format.js'
 import { needsRelogin } from '../core/policy.js'
+import { CLEARS_LABEL, liveGrants } from '../core/resets.js'
 
 // 한 줄에 제목과 값. 제목 폭을 맞춰 세로가 줄로 읽힌다. 한글은 두 칸이다.
 const TOPIC_WIDTH = 16
@@ -134,6 +135,8 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
     item('상태', '읽기 실패', 'gray')
   }
 
+  resetSection(row, { title, item, now })
+
   title('히스토리')
   const series = history?.[row.id] ?? []
   if (series.length) {
@@ -152,6 +155,67 @@ function accountLines(row, { history, log, now, staleAfterMs }) {
       entry.kind === 'error' || entry.ok === false ? 'red' : 'gray')
   }
   return lines
+}
+
+// Claude 가 리셋을 주지 않는 이유. 서버의 ineligible_reason 을 사람 말로.
+const RESET_REASON = {
+  not_at_wall: '5h 한도 도달 시 사용 가능',
+  surface: 'Claude Code 에서만 제공',
+  no_grant: '받은 권 없음',
+  tier: '요금제 대상 아님',
+  tenure: '가입 기간 대상 아님',
+  weekly_limit: '이번 주 사용함',
+  cli_version: 'Claude Code 버전 낮음',
+  unavailable: '지금 제공 안 함',
+}
+const reasonText = (reason) => RESET_REASON[reason] ?? reason ?? '대상 아님'
+
+/**
+ * 리셋. Claude 는 전체 초기화 권과 주 1회 5시간 초기화, Codex 는 리셋 크레딧이다.
+ * Claude 리셋은 이 도구가 쓰지 않는다. 서버가 Claude Code 의 요청만 받는다.
+ */
+function resetSection(row, { title, item, now }) {
+  title('리셋')
+  if (row.provider === 'codex') {
+    const credits = row.credits
+    if (!credits || !(credits.available > 0)) {
+      item('리셋 크레딧', '없음', 'gray')
+      return
+    }
+    const next = credits.nextExpiresAt ? `, 가장 이른 만료 ${when(credits.nextExpiresAt, now)}` : ''
+    item('리셋 크레딧', `${credits.available}개${next}`, 'magenta')
+    item('비우는 창', '해당하는 사용 창 전부', 'gray')
+    item('사용', row.system
+      ? 'Orca 앱에서 (Orca 관리 밖 로그인)'
+      : 'c 를 두 번. 다른 계정을 쓰는 중이면 잠시 옮겨 쓰고 되돌림', 'white')
+    return
+  }
+  const resets = row.resets
+  if (!resets || (!resets.grants && !resets.session)) {
+    item('상태', resets?.error ? `확인 실패 (${resets.error})` : '확인 전', 'gray')
+    return
+  }
+  const grants = liveGrants(resets)
+  if (grants.length === 0) {
+    const used = (resets.grants?.list ?? []).some((grant) => grant.resetsLeft === 0)
+    item('전체 초기화', used ? '사용함' : resets.grants?.eligible === false ? reasonText(resets.grants.reason) : '없음', 'gray')
+  }
+  for (const grant of grants) {
+    item('전체 초기화', `${grant.resetsLeft}회 남음 (총 ${grant.resetsTotal}회)${grant.endsAt ? `, ${when(grant.endsAt, now)} 까지` : ''}`, 'magenta')
+    item('  비우는 창', grant.clears.map((key) => CLEARS_LABEL[key] ?? key).join(', ') || '모름', 'gray')
+    item('  사용 조건', grant.usableNow ? '지금 가능' : grant.useRequiresLimit ? '한도 도달 시' : '지금 불가', grant.usableNow ? 'white' : 'gray')
+    if (grant.label) item('  이름', grant.label, 'gray')
+  }
+  const session = resets.session
+  if (session) {
+    const per = session.perWeek ? `주 ${session.perWeek}회, ` : ''
+    const state = session.available ? '지금 가능'
+      : session.nextAvailableAt ? `${when(session.nextAvailableAt, now)} 부터 가능`
+        : reasonText(session.reason)
+    item('5시간 초기화', `${per}${state}`, session.available ? 'magenta' : 'gray')
+  }
+  item('사용', '이 계정으로 연 Claude Code 에서 /usage-credits', 'white')
+  item('확인 시각', `${when(resets.checkedAt, now)}${resets.error ? `, 마지막 확인 실패 (${resets.error})` : ''}`, 'gray')
 }
 
 /** 합계 줄을 골랐을 때. 계정마다 한 줄로 값의 나이와 토큰 만료를 견준다. */

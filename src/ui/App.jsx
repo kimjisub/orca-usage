@@ -24,6 +24,8 @@ import { actionLines, tabWindow } from './bars.js'
 const HEADER_ROWS = 2
 // 종료와 업데이트를 되묻는 시간. 이 안에 다시 누르면 한다.
 const CONFIRM_WINDOW_MS = 3000
+// 리셋 크레딧은 되돌릴 수 없어 확인 문구가 길다. 문구가 떠 있는 동안(8초) 받는다.
+const RESET_CONFIRM_MS = 8000
 // 섹션 머리글. 계정 수와 창 구조가 provider 마다 달라 목록을 갈라 세운다.
 const PROVIDER_LABEL = { claude: 'Claude', codex: 'Codex' }
 // 합계 줄이 앉는 선택 자리. 계정은 0 부터라 음수를 쓰고, 탭 줄(-2)을 비켜 간다.
@@ -62,6 +64,7 @@ const ACTIONS = [
   { key: 't', label: '토큰 갱신' },
   { key: 'a', label: '자동 전환' },
   { key: 'o', label: '창 미리 열기' },
+  { key: 'c', label: '리셋' },
   { key: 'w', label: '기간' },
   { key: 'x', label: '숨김' },
   { key: 'enter', label: '계정 전환' },
@@ -415,6 +418,34 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   const nudgeWeight = useCallback((direction) => nudgeKey(WEIGHT_KEYS[scoreAt], direction), [nudgeKey, scoreAt])
 
   /**
+   * 리셋 크레딧. 되돌릴 수 없으므로 3초 안에 한 번 더 눌러야 쓴다. Codex 만 여기서
+   * 쓴다. Claude 는 서버가 Claude Code 의 요청만 받아 그쪽으로 안내한다.
+   */
+  const resetAt = useRef({ id: null, at: 0 })
+  const doReset = useCallback(async () => {
+    if (!selectedRow) return notify('계정을 먼저 고르세요')
+    if (selectedRow.provider === 'claude') {
+      return notify('Claude 리셋은 이 계정으로 연 Claude Code 에서 /usage-credits 로 씁니다. 남은 것은 상세 탭에 있습니다')
+    }
+    if (selectedRow.system) return notify('Orca 가 관리하지 않는 Codex 로그인은 Orca 앱에서 리셋합니다')
+    const count = selectedRow.credits?.available ?? 0
+    if (count <= 0) return notify(`${selectedRow.email} 에 쓸 리셋 크레딧이 없습니다`)
+    const armed = resetAt.current
+    if (armed.id !== selectedRow.id || Date.now() - armed.at > RESET_CONFIRM_MS) {
+      resetAt.current = { id: selectedRow.id, at: Date.now() }
+      // 누르는 법을 맨 앞에 둔다. 머리글은 한 줄이라 뒤가 잘린다.
+      const hop = selectedRow.id === activeIds.codex ? '' : ', 잠시 계정 전환'
+      return notify(`c 한 번 더: ${selectedRow.email} 리셋 크레딧 1개 사용 (남은 ${count}개, 되돌릴 수 없음${hop})`)
+    }
+    resetAt.current = { id: null, at: 0 }
+    return send('useResetCredit', { accountId: selectedRow.id }, {
+      pending: `리셋 크레딧 사용 중: ${selectedRow.email}`,
+      timeoutMs: 120_000,
+      done: (result) => `${selectedRow.email}: ${result?.text ?? '끝'}`,
+    })
+  }, [selectedRow, activeIds, send, notify])
+
+  /**
    * 업데이트. 받을 것이 있으면 한 번 더 눌러야 받는다. 백엔드가 받고 다시 뜨면
    * 화면도 새 코드로 다시 뜬다. 받을 것이 없다고 알고 있으면 지금 다시 확인한다.
    */
@@ -505,8 +536,9 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
         return next
       })
     } else if (key === 'u') doUpdate()
+    else if (key === 'c') doReset()
     else if (key === 'q') exit()
-  }, [doRefresh, doToken, toggleHidden, togglePolicy, doUpdate, policy, notify, exit])
+  }, [doRefresh, doToken, toggleHidden, togglePolicy, doUpdate, doReset, policy, notify, exit])
 
   // ---- 배치 ----
 
@@ -614,7 +646,7 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
         // 눌린 숫자와 골라지는 계정이 어긋난다.
         const at = rows.findIndex((row) => row.index === Number(char))
         if (at >= 0) setSelected(at)
-      } else if ('rtqwaoxXu'.includes(char)) runAction(char)
+      } else if ('rtqwaoxXuc'.includes(char)) runAction(char)
     }
     return undefined
   })
