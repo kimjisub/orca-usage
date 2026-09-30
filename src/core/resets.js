@@ -20,7 +20,7 @@ export const liveGrants = (resets) => (resets?.grants?.list ?? []).filter((grant
  */
 export function resetLines(row, now = Date.now()) {
   if (row.provider === 'codex') {
-    return row.credits?.available > 0 ? [`리셋 크레딧 ${row.credits.available}개  c 로 사용`] : []
+    return row.credits?.available > 0 ? [`리셋 크레딧 ${row.credits.available}개`] : []
   }
   const lines = []
   for (const grant of liveGrants(row.resets)) {

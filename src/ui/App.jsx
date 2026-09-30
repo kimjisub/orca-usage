@@ -20,12 +20,11 @@ import { Details, detailLines } from './Details.jsx'
 import { needsScreenRestart } from './follow-backend.js'
 import { needsRelogin } from '../core/policy.js'
 import { actionLines, tabWindow } from './bars.js'
+import { ResetModal, confirmWordOf } from './ResetModal.jsx'
 
 const HEADER_ROWS = 2
 // 종료와 업데이트를 되묻는 시간. 이 안에 다시 누르면 한다.
 const CONFIRM_WINDOW_MS = 3000
-// 리셋 크레딧은 되돌릴 수 없어 확인 문구가 길다. 문구가 떠 있는 동안(8초) 받는다.
-const RESET_CONFIRM_MS = 8000
 // 섹션 머리글. 계정 수와 창 구조가 provider 마다 달라 목록을 갈라 세운다.
 const PROVIDER_LABEL = { claude: 'Claude', codex: 'Codex' }
 // 합계 줄이 앉는 선택 자리. 계정은 0 부터라 음수를 쓰고, 탭 줄(-2)을 비켜 간다.
@@ -64,7 +63,6 @@ const ACTIONS = [
   { key: 't', label: '토큰 갱신' },
   { key: 'a', label: '자동 전환' },
   { key: 'o', label: '창 미리 열기' },
-  { key: 'c', label: '리셋' },
   { key: 'w', label: '기간' },
   { key: 'x', label: '숨김' },
   { key: 'enter', label: '계정 전환' },
@@ -418,32 +416,61 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   const nudgeWeight = useCallback((direction) => nudgeKey(WEIGHT_KEYS[scoreAt], direction), [nudgeKey, scoreAt])
 
   /**
-   * 리셋 크레딧. 되돌릴 수 없으므로 3초 안에 한 번 더 눌러야 쓴다. Codex 만 여기서
-   * 쓴다. Claude 는 서버가 Claude Code 의 요청만 받아 그쪽으로 안내한다.
+   * 리셋 크레딧. 되돌릴 수 없으므로 키 한 번으로 쓰지 않는다. 상세 탭에서 c 를
+   * 누르면 확인 창이 열리고 세 단계(요약, 이름 입력, 마지막 확인)를 지나야 쓴다
+   * (ResetModal.jsx). Claude 는 서버가 Claude Code 의 요청만 받아 그쪽으로 안내한다.
    */
-  const resetAt = useRef({ id: null, at: 0 })
-  const doReset = useCallback(async () => {
+  const [resetFlow, setResetFlow] = useState(null)
+  const openReset = useCallback(() => {
+    if (mode !== 'detail') return notify('리셋은 상세 탭에서 계정을 고르고 c 로 확인 창을 엽니다')
     if (!selectedRow) return notify('계정을 먼저 고르세요')
     if (selectedRow.provider === 'claude') {
-      return notify('Claude 리셋은 이 계정으로 연 Claude Code 에서 /usage-credits 로 씁니다. 남은 것은 상세 탭에 있습니다')
+      return notify('Claude 리셋은 이 계정으로 연 Claude Code 에서 /usage-credits 로 씁니다')
     }
     if (selectedRow.system) return notify('Orca 가 관리하지 않는 Codex 로그인은 Orca 앱에서 리셋합니다')
-    const count = selectedRow.credits?.available ?? 0
-    if (count <= 0) return notify(`${selectedRow.email} 에 쓸 리셋 크레딧이 없습니다`)
-    const armed = resetAt.current
-    if (armed.id !== selectedRow.id || Date.now() - armed.at > RESET_CONFIRM_MS) {
-      resetAt.current = { id: selectedRow.id, at: Date.now() }
-      // 누르는 법을 맨 앞에 둔다. 머리글은 한 줄이라 뒤가 잘린다.
-      const hop = selectedRow.id === activeIds.codex ? '' : ', 잠시 계정 전환'
-      return notify(`c 한 번 더: ${selectedRow.email} 리셋 크레딧 1개 사용 (남은 ${count}개, 되돌릴 수 없음${hop})`)
+    if (!(selectedRow.credits?.available > 0)) return notify(`${selectedRow.email} 에 쓸 리셋 크레딧이 없습니다`)
+    setResetFlow({ accountId: selectedRow.id, step: 1, choice: 0, typed: '' })
+    return undefined
+  }, [mode, selectedRow, notify])
+
+  // 확인 창이 가리키는 계정. 창이 떠 있는 동안에도 백엔드 상태를 따라간다.
+  const resetRow = resetFlow ? allRows.find((row) => row.id === resetFlow.accountId) : null
+  const closeReset = useCallback((text) => {
+    setResetFlow(null)
+    if (text) notify(text)
+  }, [notify])
+
+  /** 확인 창의 키. 창이 떠 있으면 다른 키는 전부 여기서 끝난다. */
+  const onResetKey = useCallback((input, key) => {
+    const flow = resetFlow
+    if (key.escape) return closeReset('리셋 취소')
+    // 단계마다 크레딧이 아직 있는지 다시 본다. 그사이 다른 곳에서 썼을 수 있다.
+    if (!(resetRow?.credits?.available > 0)) return closeReset('쓸 리셋 크레딧이 없어 닫았습니다')
+    if (flow.step === 2) {
+      if (key.return) {
+        if (flow.typed !== confirmWordOf(resetRow)) return notify('입력한 이름이 다릅니다')
+        return setResetFlow({ ...flow, step: 3, choice: 0 })
+      }
+      if (key.backspace || key.delete) return setResetFlow({ ...flow, typed: flow.typed.slice(0, -1) })
+      if (input && !key.ctrl && !key.meta && /^[\x20-\x7e]+$/.test(input)) {
+        return setResetFlow({ ...flow, typed: (flow.typed + input).slice(0, 64) })
+      }
+      return undefined
     }
-    resetAt.current = { id: null, at: 0 }
-    return send('useResetCredit', { accountId: selectedRow.id }, {
-      pending: `리셋 크레딧 사용 중: ${selectedRow.email}`,
+    if (key.leftArrow || key.rightArrow || input === 'h' || input === 'l' || key.tab) {
+      return setResetFlow({ ...flow, choice: flow.choice ? 0 : 1 })
+    }
+    if (!key.return) return undefined
+    if (flow.choice === 0) return closeReset('리셋 취소')
+    if (flow.step === 1) return setResetFlow({ ...flow, step: 2, choice: 0, typed: '' })
+    const row = resetRow
+    closeReset(null)
+    return send('useResetCredit', { accountId: row.id }, {
+      pending: `리셋 크레딧 사용 중: ${row.email}`,
       timeoutMs: 120_000,
-      done: (result) => `${selectedRow.email}: ${result?.text ?? '끝'}`,
+      done: (result) => `${row.email}: ${result?.text ?? '끝'}`,
     })
-  }, [selectedRow, activeIds, send, notify])
+  }, [resetFlow, resetRow, closeReset, notify, send])
 
   /**
    * 업데이트. 받을 것이 있으면 한 번 더 눌러야 받는다. 백엔드가 받고 다시 뜨면
@@ -536,9 +563,9 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
         return next
       })
     } else if (key === 'u') doUpdate()
-    else if (key === 'c') doReset()
+    else if (key === 'c') openReset()
     else if (key === 'q') exit()
-  }, [doRefresh, doToken, toggleHidden, togglePolicy, doUpdate, doReset, policy, notify, exit])
+  }, [doRefresh, doToken, toggleHidden, togglePolicy, doUpdate, openReset, policy, notify, exit])
 
   // ---- 배치 ----
 
@@ -559,6 +586,12 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   }, [panelWidth, screenRows, actionRows.length, showTarget])
 
   useInput((input, key) => {
+    // 확인 창이 떠 있으면 그 창만 키를 받는다. 클릭도 무시한다. 뒤의 화면이
+    // 움직이면 무엇을 확인하고 있는지가 흐려진다.
+    if (resetFlow) {
+      if (!isMouseSequence(input)) onResetKey(input, key)
+      return
+    }
     // 마우스 리포팅을 켜 두면 클릭 좌표가 `[<0;100;12M` 같은 문자열로 여기
     // 들어온다. 글자별로 훑으면 좌표의 숫자가 계정 선택으로 읽혀, 그래프 아무
     // 데나 눌러도 계정이 바뀐다. 클릭으로 처리하고 아래로 넘기지 않는다.
@@ -893,41 +926,57 @@ export function App({ graphStyle = 'braille', onRestart = () => {} }) {
   return (
     <Box flexDirection="column" height={screenRows} width={columns}>
       {header}
-      <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">
-        {/* 왼쪽은 flexShrink 를 막는다. 오른쪽 내용이 길면 flex 가 이쪽을 눌러
-            막대와 이름이 잘리는데, 폭은 목록이 필요로 하는 만큼이라 내줄 자리가
-            없다. */}
-        {wide ? (
+      {resetFlow && resetRow ? (
+        <Box flexGrow={1} height={layout.panelHeight} justifyContent="center" alignItems="center">
+          <ResetModal
+            row={resetRow}
+            activeCodexEmail={allRows.find((row) => row.id === activeIds.codex)?.email ?? null}
+            step={resetFlow.step}
+            choice={resetFlow.choice}
+            typed={resetFlow.typed}
+            width={Math.min(columns - 2, 76)}
+          />
+        </Box>
+      ) : (
+        <HitRoot onMeasure={onColumnTop} flexGrow={1} flexDirection="row">
+          {/* 왼쪽은 flexShrink 를 막는다. 오른쪽 내용이 길면 flex 가 이쪽을 눌러
+              막대와 이름이 잘리는데, 폭은 목록이 필요로 하는 만큼이라 내줄 자리가
+              없다. */}
+          {wide ? (
+            <Box
+              width={panelWidth}
+              height={layout.panelHeight}
+              flexShrink={0}
+              flexDirection="column"
+              borderStyle="round"
+              borderColor={lostColor ?? 'gray'}
+              paddingX={1}
+              overflow="hidden"
+            >
+              {listBody}
+            </Box>
+          ) : null}
           <Box
-            width={panelWidth}
+            flexGrow={1}
             height={layout.panelHeight}
-            flexShrink={0}
             flexDirection="column"
             borderStyle="round"
-            borderColor={lostColor ?? 'gray'}
+            borderColor={lostColor ?? 'cyan'}
             paddingX={1}
             overflow="hidden"
           >
-            {listBody}
+            <Hit id={TAB_HIT} onMeasure={onHit}>
+              <Tabs view={tabView} mode={mode} />
+            </Hit>
+            {showTarget ? <TargetLine row={current} provider={overviewProvider} /> : null}
+            {panelBody}
           </Box>
-        ) : null}
-        <Box
-          flexGrow={1}
-          height={layout.panelHeight}
-          flexDirection="column"
-          borderStyle="round"
-          borderColor={lostColor ?? 'cyan'}
-          paddingX={1}
-          overflow="hidden"
-        >
-          <Hit id={TAB_HIT} onMeasure={onHit}>
-            <Tabs view={tabView} mode={mode} />
-          </Hit>
-          {showTarget ? <TargetLine row={current} provider={overviewProvider} /> : null}
-          {panelBody}
-        </Box>
-      </HitRoot>
-      <ActionBar lines={actionRows} />
+        </HitRoot>
+      )}
+      {/* 확인 창이 떠 있는 동안에는 단축키가 먹지 않는다. 적어 두면 누를 수 있는 것처럼 보인다. */}
+      {resetFlow && resetRow
+        ? <Box height={actionRows.length} flexShrink={0} />
+        : <ActionBar lines={actionRows} />}
     </Box>
   )
 }

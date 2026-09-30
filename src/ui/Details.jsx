@@ -187,7 +187,7 @@ function resetSection(row, { title, item, now }) {
     item('비우는 창', '해당하는 사용 창 전부', 'gray')
     item('사용', row.system
       ? 'Orca 앱에서 (Orca 관리 밖 로그인)'
-      : 'c 를 두 번. 다른 계정을 쓰는 중이면 잠시 옮겨 쓰고 되돌림', 'white')
+      : 'c 로 확인 창을 열어 세 단계 확인 뒤 사용. 다른 계정을 쓰는 중이면 잠시 옮겨 쓰고 되돌림', 'white')
     return
   }
   const resets = row.resets

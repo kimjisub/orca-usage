@@ -222,7 +222,7 @@ Refreshing renews the access token and rotates the refresh token, but it cannot 
 
 ### Usage-limit resets
 
-- **Codex reset credits.** `c` on a Codex account spends one credit, after a second `c` within eight seconds. It goes through Orca's own RPC (`accounts.consumeCodexResetCredit`), which keeps an idempotency ledger so a credit is never spent twice. Orca only resets its selected Codex account, so for another account the backend switches to it, spends the credit and switches back, and notifies you if it could not switch back.
+- **Codex reset credits.** On the 상세 tab, `c` on a Codex account opens a confirmation dialog: a summary, typing the account name, and a final confirmation, each defaulting to cancel; Esc closes it at any step. Only after all three is one credit spent. It goes through Orca's own RPC (`accounts.consumeCodexResetCredit`), which keeps an idempotency ledger so a credit is never spent twice. Orca only resets its selected Codex account, so for another account the backend switches to it, spends the credit and switches back, and notifies you if it could not switch back.
 - **Claude resets.** Claude offers reset grants (전체 초기화: a one-off grant that clears 5h, 7d and overage together) and a weekly session reset (5시간 초기화: only once the 5h limit is hit). The server shows and accepts them only for requests from Claude Code, so orca-usage reads their status with Claude Code's User-Agent and lists them under each account and on the 상세 tab, but does not spend them. Use them from Claude Code logged in to that account with `/usage-credits`. Status is read every 30 minutes, and every poll for an account at its 5h limit.
 
 ### Automatic switching
