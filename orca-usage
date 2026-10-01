@@ -21,4 +21,12 @@ done
 root=$(cd "$(dirname "$target")" && pwd)
 # 화면은 React production 빌드로 돌아야 한다. 개발 빌드로 그리면 네이티브 메모리가
 # 샌다. bun 은 시작할 때의 NODE_ENV 로 JSX 를 변환하므로 여기서 건다(src/react-env.js).
-NODE_ENV=production exec bun run "$root/src/cli.jsx" "$@"
+#
+# 화면이 76 으로 끝나면 업데이트 뒤 새 코드로 다시 떠야 한다는 뜻이다. 여기서 다시
+# 띄운다. 화면이 스스로 자식을 띄우면 옛 화면이 메모리를 쥔 채 남는다(src/launcher.js).
+export ORCA_USAGE_LAUNCHER=1
+while :; do
+  NODE_ENV=production bun run "$root/src/cli.jsx" "$@"
+  code=$?
+  [ "$code" -eq 76 ] || exit "$code"
+done

@@ -12,6 +12,7 @@ import { PLIST_PATH, inspect, kickstart, register, unregister } from './daemon/l
 import { installMode, versionLabel } from './adapters/install/install.js'
 import { createUpdater, repoSlug } from './adapters/install/updater.js'
 import { needsProductionRestart } from './react-env.js'
+import { RESTART_EXIT_CODE, launchedByScript } from './launcher.js'
 
 const out = (text = '') => process.stdout.write(`${text}\n`)
 const fail = (text, code = 1) => {
@@ -390,8 +391,14 @@ async function screen(graphStyle) {
   )
   await app.waitUntilExit()
   if (!restart) return
-  // 업데이트로 백엔드가 새 코드로 떴다. 화면도 같은 명령을 다시 띄워 새 코드로
-  // 돌린다. 이 프로세스는 옛 코드를 메모리에 들고 있어 제자리에서 바뀌지 않는다.
+  // 업데이트로 백엔드가 새 코드로 떴다. 화면도 새 코드로 다시 떠야 한다. 이
+  // 프로세스는 옛 코드를 메모리에 들고 있어 제자리에서 바뀌지 않는다. 실행
+  // 스크립트가 띄웠으면 약속한 코드로 끝나 스크립트가 다시 띄우게 한다(launcher.js).
+  if (launchedByScript()) {
+    process.exitCode = RESTART_EXIT_CODE
+    return
+  }
+  // bun src/cli.jsx 로 직접 띄운 경우다. 다시 띄워 줄 쪽이 없어 자식으로 띄운다.
   const next = spawnSync(process.execPath, process.argv.slice(1), { stdio: 'inherit' })
   process.exitCode = next.status ?? 0
 }

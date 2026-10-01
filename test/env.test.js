@@ -35,6 +35,25 @@ test('실행 스크립트는 bun 을 NODE_ENV=production 으로 띄운다', () =
   expect(out).toBe(`NODE_ENV=production run ${path.join(root, 'src/cli.jsx')} status`)
 })
 
+test('화면이 76 으로 끝나면 실행 스크립트가 다시 띄우고, 다른 코드는 그대로 돌려준다', () => {
+  // 가짜 bun 은 처음 두 번은 76 으로, 세 번째는 3 으로 끝난다.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-bun-'))
+  const count = path.join(dir, 'count')
+  fs.writeFileSync(path.join(dir, 'bun'), [
+    '#!/bin/sh',
+    `n=$(cat ${count} 2>/dev/null || echo 0); n=$((n + 1)); echo $n > ${count}`,
+    'echo "run $n launcher=$ORCA_USAGE_LAUNCHER"',
+    '[ "$n" -lt 3 ] && exit 76',
+    'exit 3',
+  ].join('\n'), { mode: 0o755 })
+  const result = Bun.spawnSync(['/bin/sh', path.join(root, 'orca-usage')], {
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+  })
+  fs.rmSync(dir, { recursive: true, force: true })
+  expect(result.stdout.toString().trim().split('\n')).toEqual(['run 1 launcher=1', 'run 2 launcher=1', 'run 3 launcher=1'])
+  expect(result.exitCode).toBe(3)
+})
+
 describe('JSX 와 React 빌드', () => {
   const fixture = path.join(root, 'test/fixtures/jsx-check.js')
 
