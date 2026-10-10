@@ -111,6 +111,24 @@ describe('소켓 서버', () => {
   })
 })
 
+describe('한 번 묻고 입력을 닫는 클라이언트', () => {
+  test('느린 요청을 보내고 바로 입력을 닫아도 답을 받고 연결이 닫힌다', async () => {
+    const engine = fakeEngine()
+    engine.refresh = () => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 80))
+    const { server, socketPath } = await serve(engine)
+    const raw = net.createConnection(socketPath)
+    let got = ''
+    raw.setEncoding('utf8')
+    raw.on('data', (chunk) => { got += chunk })
+    const closed = new Promise((resolve) => raw.once('close', resolve))
+    await new Promise((resolve) => raw.once('connect', resolve))
+    raw.end(`${JSON.stringify({ id: 9, method: 'refresh' })}\n`)
+    await closed
+    expect(JSON.parse(got.trim())).toEqual({ id: 9, result: { ok: true } })
+    server.close()
+  })
+})
+
 describe('밀린 연결과 긴 줄', () => {
   test('소켓을 안 읽는 구독자는 쌓인 것이 한도를 넘으면 끊는다', async () => {
     const engine = fakeEngine()

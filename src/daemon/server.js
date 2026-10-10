@@ -62,11 +62,33 @@ export function createServer(engine, { hello, onShutdown, maxPending = MAX_PENDI
   engine.on('state', (data) => broadcast('state', data))
   engine.on('log', (data) => broadcast('log', data))
 
-  const server = net.createServer((socket) => {
-    const client = { socket, subscribed: false }
+  // 한 번 묻고 입력을 닫는 클라이언트(nc -U, Claude Code mod)가 있다. 기본값이면
+  // 그 순간 이쪽도 닫혀, 몇 초 걸리는 요청(재조회, 전환, 리셋 크레딧)은 실행되고
+  // 답만 사라진다. 그래서 반쯤 열린 채로 두고, 받은 요청에 다 답한 뒤에 닫는다.
+  const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+    const client = { socket, subscribed: false, pending: 0, ended: false }
     clients.add(client)
     socket.setEncoding('utf8')
+    const closeIfDone = () => {
+      if (client.ended && client.pending === 0 && !client.subscribed && !socket.destroyed) socket.end()
+    }
+    socket.on('end', () => {
+      client.ended = true
+      // 구독한 쪽이 입력을 닫았으면 더 받을 사람이 없다.
+      client.subscribed = false
+      closeIfDone()
+    })
     socket.on('data', lineReader(async (message) => {
+      client.pending += 1
+      try {
+        await answer(message)
+      } finally {
+        client.pending -= 1
+        closeIfDone()
+      }
+    }, () => send(client, { id: null, error: { message: 'JSON 이 아닌 줄을 받았습니다' } })))
+
+    async function answer(message) {
       const id = message?.id ?? null
       const handler = typeof message?.method === 'string' ? handlers[message.method] : null
       if (!handler) {
@@ -80,7 +102,7 @@ export function createServer(engine, { hello, onShutdown, maxPending = MAX_PENDI
       } catch (error) {
         send(client, { id, error: { message: error?.message ?? String(error) } })
       }
-    }, () => send(client, { id: null, error: { message: 'JSON 이 아닌 줄을 받았습니다' } })))
+    }
     socket.on('close', () => clients.delete(client))
     // 화면이 갑자기 꺼지면 EPIPE 가 온다. 그 연결만 버리면 된다.
     socket.on('error', () => clients.delete(client))
