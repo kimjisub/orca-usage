@@ -297,7 +297,7 @@ describe('상세', () => {
     const { engine } = setup({ accounts: [claudeAccount('a', 1)], usage: { a: limits(T0) }, expiry: { a: T0 + HOUR } })
     await engine.start({ schedule: false })
     const token = engine.snapshot().accounts[0].token
-    expect(token).toMatchObject({ expiresAt: T0 + HOUR, checkedAt: T0, owner: 'orca', source: 'keychain' })
+    expect(token).toMatchObject({ expiresAt: T0 + HOUR, checkedAt: T0, owner: 'orca', source: 'managed' })
   })
 
   test('시스템 기본 Codex 로그인으로는 옮기지 않는다', async () => {

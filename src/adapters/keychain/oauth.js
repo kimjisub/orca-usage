@@ -1,5 +1,7 @@
+import { isAbandoned } from '../../core/policy.js'
 import {
-  CredentialError, backupCredentials, readCredentials, withRefreshLock, writeCredentials,
+  CredentialError, backupCredentials, locateCredentials, readCredentialsAt, withRefreshLock,
+  writeCredentialsAt,
 } from './credentials.js'
 
 const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
@@ -89,15 +91,21 @@ export async function refreshCredentials(payload) {
 
 /**
  * 쓸 수 있는 액세스 토큰을 돌려준다. 만료가 임박했고 갱신이 허용되면 갱신하고
- * Orca 가 읽는 바로 그 키체인 항목에 되쓴다.
+ * 읽은 바로 그 키체인 항목에 되쓴다.
+ *
+ * 프로필 항목은 그 프로필의 Claude Code 세션이 함께 쓴다. 세션은 쓰는 동안 만료
+ * 전에 스스로 갱신하므로, 우리는 만료된 지 한 시간이 넘은 것만 갱신한다(isAbandoned).
+ * 그보다 일찍 돌리면 세션이 들고 있는 refresh token 과 엇갈려 한쪽이 폐기된다.
  *
  * @returns {{token: string|null, note: string|null, refreshed: boolean, expiresAt: number|null}}
  */
 export async function ensureToken(accountId, { allowRefresh, lastRefreshAt = 0, force = false }) {
-  let payload = await readCredentials(accountId)
+  const where = await locateCredentials(accountId)
+  let payload = await readCredentialsAt(where)
   let oauth = JSON.parse(payload).claudeAiOauth ?? {}
+  const buffer = where.kind === 'profile' ? 0 : EXPIRY_BUFFER_MS
   const stale = force ||
-    (typeof oauth.expiresAt === 'number' && Date.now() + EXPIRY_BUFFER_MS >= oauth.expiresAt)
+    (typeof oauth.expiresAt === 'number' && Date.now() + buffer >= oauth.expiresAt)
 
   if (!stale) {
     return { token: oauth.accessToken, note: null, refreshed: false, expiresAt: oauth.expiresAt }
@@ -106,16 +114,19 @@ export async function ensureToken(accountId, { allowRefresh, lastRefreshAt = 0, 
     token: oauth.accessToken, refreshed: false, expiresAt: oauth.expiresAt, authFailed: false,
   }
   if (!allowRefresh) return { ...base, note: '토큰 만료 (갱신이 꺼져 있습니다)' }
+  if (!force && where.kind === 'profile' && !isAbandoned(oauth.expiresAt)) {
+    return { ...base, note: '토큰 만료 (세션의 갱신을 기다립니다)' }
+  }
   if (!force && Date.now() - lastRefreshAt < REFRESH_MIN_GAP_MS) {
     return { ...base, note: '토큰 만료 (직전 갱신이 최근이라 건너뜁니다)' }
   }
 
   const { acquired, value } = await withRefreshLock(async () => {
     // 잠금을 잡는 사이 다른 쪽이 이미 갱신했을 수 있다. 다시 읽어 확인한다.
-    payload = await readCredentials(accountId)
+    payload = await readCredentialsAt(where)
     oauth = JSON.parse(payload).claudeAiOauth ?? {}
     if (!force && typeof oauth.expiresAt === 'number' &&
-        Date.now() + EXPIRY_BUFFER_MS < oauth.expiresAt) {
+        Date.now() + buffer < oauth.expiresAt) {
       return { token: oauth.accessToken, note: null, refreshed: false, expiresAt: oauth.expiresAt }
     }
 
@@ -132,14 +143,14 @@ export async function ensureToken(accountId, { allowRefresh, lastRefreshAt = 0, 
     }
 
     // 되쓰기가 이 작업의 위험한 부분이다. 원본을 남기고, 쓰고, 다시 읽어 맞는지 본다.
-    const backup = backupCredentials(accountId, payload)
+    const backup = backupCredentials(accountId, payload, where.kind)
     try {
-      await writeCredentials(accountId, result.payload)
+      await writeCredentialsAt(where, result.payload)
     } catch (error) {
       throw new CredentialError(
         `${error.message} - 새 토큰이 저장되지 않아 Orca 의 토큰이 죽었을 수 있습니다. 백업: ${backup}`)
     }
-    if (await readCredentials(accountId) !== result.payload) {
+    if (await readCredentialsAt(where) !== result.payload) {
       throw new CredentialError(`키체인에 쓴 값이 다시 읽히지 않습니다. 백업: ${backup}`)
     }
     const fresh = JSON.parse(result.payload).claudeAiOauth

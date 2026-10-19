@@ -5,11 +5,19 @@ import { fileURLToPath } from 'node:url'
 export const HOME = os.homedir()
 export const ORCA_ACCOUNTS = path.join(
   HOME, 'Library/Application Support/orca/claude-accounts')
+// Orca 가 계정마다 만드는 Claude Code 설정 폴더. <id>/home 이 그 계정 세션의
+// CLAUDE_CONFIG_DIR 이다.
+export const ORCA_PROFILES = path.join(
+  HOME, 'Library/Application Support/orca/claude-profiles')
 export const ORCA_CODEX_ACCOUNTS = path.join(
   HOME, 'Library/Application Support/orca/codex-accounts')
 // Codex 가 시스템 기본 로그인을 두는 곳. Codex 처럼 CODEX_HOME 을 따른다.
 export const CODEX_HOME = process.env.CODEX_HOME || path.join(HOME, '.codex')
+// Orca 1.4 이전의 계정별 자격증명. 지금 Orca 는 읽지도 쓰지도 않고, 프로필
+// 폴더가 없는 계정만 아직 여기에 토큰이 있다.
 export const KEYCHAIN_SERVICE = 'Orca Claude Code Managed Credentials'
+// Claude Code 가 CLAUDE_CONFIG_DIR 마다 쓰는 항목의 접두사. 뒤에 경로 해시가 붙는다.
+export const CLAUDE_CODE_SERVICE = 'Claude Code-credentials'
 export const SECURITY = '/usr/bin/security'
 
 export const STATE_DIR = path.join(HOME, '.cache/orca-usage')

@@ -1,5 +1,5 @@
 import { fingerprintOf } from '../../core/fingerprint.js'
-import { readCredentials } from './credentials.js'
+import { locateCredentials, readCredentialsAt } from './credentials.js'
 import { ensureToken } from './oauth.js'
 
 /**
@@ -9,11 +9,16 @@ import { ensureToken } from './oauth.js'
  * 원문은 이 함수를 벗어나지 않는다. 리프레시 토큰의 만료는 Claude Code 가
  * 갱신 응답의 refresh_token_expires_in 으로 적어 두는 값이다.
  *
- * @returns {Promise<{expiresAt: number|null, refresh: string|null, refreshExpiresAt: number|null}>}
+ * source 는 읽은 항목이다. profile 은 Orca 프로필의 Claude Code 항목, managed 는
+ * 프로필이 없는 계정에 남은 옛 Orca 항목이다(credentials.js 의 locateCredentials).
+ *
+ * @returns {Promise<{expiresAt: number|null, refresh: string|null, refreshExpiresAt: number|null, source: 'profile'|'managed'}>}
  */
 export async function peekToken(accountId) {
-  const oauth = JSON.parse(await readCredentials(accountId)).claudeAiOauth ?? {}
+  const where = await locateCredentials(accountId)
+  const oauth = JSON.parse(await readCredentialsAt(where)).claudeAiOauth ?? {}
   return {
+    source: where.kind,
     expiresAt: typeof oauth.expiresAt === 'number' ? oauth.expiresAt : null,
     refresh: fingerprintOf(oauth.refreshToken),
     refreshExpiresAt: typeof oauth.refreshTokenExpiresAt === 'number' ? oauth.refreshTokenExpiresAt : null,

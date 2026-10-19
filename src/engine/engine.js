@@ -97,6 +97,8 @@ export class Engine extends EventEmitter {
     this.refreshPrint = new Map()
     // 발급처가 리프레시 토큰을 폐기했다고 답한 시각. 새 토큰이 보이면 지운다.
     this.refreshRevokedAt = new Map()
+    // 토큰을 어느 키체인 항목에서 읽었나. profile 또는 managed.
+    this.tokenSource = new Map()
     // 리프레시 토큰의 만료. Claude 만 키체인에 있고 Codex 는 알 수 없다.
     this.refreshExpiry = new Map()
     // Claude 리셋권과 세션 리셋 상태. 계정마다 {status, error, at}.
@@ -110,7 +112,8 @@ export class Engine extends EventEmitter {
    * 액세스 토큰이 새로 나온 것이고, 지문이 바뀌었으면 리프레시 토큰이 교체된
    * 것이다. 처음 읽은 값은 비교할 것이 없어 교체 시각을 모른다.
    */
-  observeToken(accountId, { expiresAt, refresh, refreshExpiresAt = null }, now = this.now()) {
+  observeToken(accountId, { expiresAt, refresh, refreshExpiresAt = null, source = null }, now = this.now()) {
+    if (source) this.tokenSource.set(accountId, source)
     this.refreshExpiry.set(accountId, refreshExpiresAt)
     const previous = this.expiry.get(accountId)
     if (previous != null && expiresAt != null && expiresAt > previous) this.accessRenewedAt.set(accountId, now)
@@ -473,7 +476,7 @@ export class Engine extends EventEmitter {
       refreshedAt: ours,
       owner: waiting ? 'retry' : isAbandoned(expiresAt, now) ? 'backend' : 'orca',
       retryAt: waiting ? failedAt + REFRESH_RETRY_MS : null,
-      source: 'keychain',
+      source: this.tokenSource.get(row.id) ?? 'managed',
       refresh,
     }
   }
