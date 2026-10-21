@@ -123,7 +123,7 @@ function limitsById(payload, provider) {
  * Orca 가 아는 계정과 사용량 전부.
  *
  * @returns {Promise<{
- *   claude: { activeId: string|null, byId: Map<string, object> },
+ *   claude: { activeId: string|null, byId: Map<string, object>, accounts: object[] },
  *   codex: { activeId: string|null, byId: Map<string, object>, accounts: object[] },
  * }>}
  */
@@ -158,15 +158,13 @@ export async function fetchOrcaLimits({ refreshUsage = false } = {}) {
   }
 
   return {
-    claude: { activeId: payload?.claude?.activeAccountId ?? null, byId: claudeById },
+    claude: {
+      activeId: payload?.claude?.activeAccountId ?? null,
+      byId: claudeById,
+      accounts: payload?.claude?.accounts ?? [],
+    },
     codex: { activeId: codexActiveId(payload), byId: codexById, accounts: codexAccounts },
   }
-}
-
-/** Codex 계정 목록만. 계정을 세울 때 쓴다. */
-export async function fetchCodex({ refreshUsage = false } = {}) {
-  const { codex } = await fetchOrcaLimits({ refreshUsage })
-  return { activeId: codex.activeId, accounts: codex.accounts }
 }
 
 /** Orca 의 활성 Codex 계정을 바꾼다. */

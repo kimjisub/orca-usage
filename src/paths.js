@@ -3,8 +3,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const HOME = os.homedir()
-export const ORCA_ACCOUNTS = path.join(
-  HOME, 'Library/Application Support/orca/claude-accounts')
 // Orca 가 계정마다 만드는 Claude Code 설정 폴더. <id>/home 이 그 계정 세션의
 // CLAUDE_CONFIG_DIR 이다.
 export const ORCA_PROFILES = path.join(
