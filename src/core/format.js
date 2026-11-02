@@ -29,6 +29,18 @@ export function msUntil(resetsAt, now = Date.now()) {
   return Number.isNaN(target) ? null : target - now
 }
 
+/**
+ * 리셋 시각이 지난 창을 뺀다. 그 창은 이미 비워졌으므로 남은 사용률은 사실이
+ * 아니다. 실측 2026-11-02: 10-23 부터 인증이 끊긴 계정이 10-23 에 리셋된 5h 4%,
+ * 10-24 에 리셋된 7d 81% 를 그대로 띄우고 있었다. 리셋 시각을 모르는 창은 둔다.
+ */
+export function liveWindows(windows, now = Date.now()) {
+  return (windows ?? []).filter((window) => {
+    const left = msUntil(window.resetsAt, now)
+    return left == null || left > 0
+  })
+}
+
 /** "2h 47m" 처럼 두 단위까지만 쓴다. 스크린샷의 resets 표기와 같은 모양이다. */
 export function shortSpan(ms) {
   if (ms == null) return ''

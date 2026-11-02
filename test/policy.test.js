@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { liveWindows } from '../src/core/format.js'
 import {
   REFRESH_AFTER_EXPIRY_MS, isAbandoned, needsOpening, needsRelogin, refuseManualRefresh,
 } from '../src/core/policy.js'
@@ -71,5 +72,16 @@ describe('needsRelogin', () => {
   })
   test('폐기됐으면 기한과 무관하게 필요', () => {
     expect(needsRelogin({ refresh: { expiresAt: null, revokedAt: now } }, now)).toBe(true)
+  })
+})
+
+describe('liveWindows', () => {
+  test('리셋 시각이 지난 창만 뺀다. 리셋 시각을 모르는 창은 둔다', () => {
+    const windows = [
+      { label: '5h', pct: 4, resetsAt: new Date(NOW - MINUTE).toISOString() },
+      { label: '7d', pct: 30, resetsAt: new Date(NOW + MINUTE).toISOString() },
+      { label: 'Fable', pct: 0, resetsAt: null },
+    ]
+    expect(liveWindows(windows, NOW).map((window) => window.label)).toEqual(['7d', 'Fable'])
   })
 })

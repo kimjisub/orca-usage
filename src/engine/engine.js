@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { advise, scoreAccounts } from '../core/advice.js'
 import { decideSwitch } from '../core/autoswitch.js'
+import { liveWindows } from '../core/format.js'
 import { isAbandoned, needsOpening, refuseManualRefresh } from '../core/policy.js'
 import { TUNABLES, TUNING_DEFAULTS, applyTuning, formatTuning, tuning } from '../core/tuning.js'
 import { pollOnce, rowsFromCache } from './poller.js'
@@ -722,8 +723,17 @@ export class Engine extends EventEmitter {
 
   // ---- 읽기 -------------------------------------------------------------
 
+  /**
+   * 화면과 판정이 보는 행. 리셋이 지난 창은 뺀다. 창 열기는 닫힌 창을 찾아야
+   * 하므로 이것이 아니라 this.rows 를 본다.
+   */
   viewRows() {
-    return this.rows.map((row) => ({ ...row, active: row.id === this.active[row.provider] }))
+    const now = this.now()
+    return this.rows.map((row) => ({
+      ...row,
+      usage: row.usage ? { ...row.usage, windows: liveWindows(row.usage.windows, now) } : row.usage,
+      active: row.id === this.active[row.provider],
+    }))
   }
 
   policyView() {

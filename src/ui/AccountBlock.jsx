@@ -74,7 +74,7 @@ export function AccountBlock({
             now={now}
           />
           ))
-        : <Text color="gray">{'     사용량 조회 전'}</Text>}
+        : <Text color="gray">{row.fetchedAt ? '     받아 둔 값의 리셋이 지났습니다' : '     사용량 조회 전'}</Text>}
 
       {/* 쓸 수 있는 리셋. 쓰면 창이 즉시 비므로 몇 번 더 버티느냐와 같다. */}
       {resetLines(row, now).map((line) => (

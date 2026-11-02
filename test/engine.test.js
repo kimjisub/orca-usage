@@ -379,3 +379,34 @@ describe('리셋', () => {
     expect(calls.notify.some((entry) => JSON.stringify(entry).includes('계정 확인 필요'))).toBe(true)
   })
 })
+
+describe('리셋이 지난 창', () => {
+  const expired = (now) => ({
+    ...limits(now),
+    usage: {
+      windows: [
+        { label: '5h', pct: 4, resetsAt: new Date(now - HOUR).toISOString() },
+        { label: '7d', pct: 30, resetsAt: new Date(now + 2 * 24 * HOUR).toISOString() },
+      ],
+    },
+  })
+
+  test('화면과 판정에서 빠진다', async () => {
+    const { engine } = setup({ accounts: [claudeAccount('a', 1)], usage: { a: expired(T0) } })
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    expect(engine.snapshot().accounts[0].usage.windows.map((window) => window.label)).toEqual(['7d'])
+    expect(engine.snapshot().scores[0]).toBeDefined()
+  })
+
+  test('창 열기는 그 창을 닫힌 것으로 보고 연다', async () => {
+    const { engine, calls } = setup({
+      accounts: [claudeAccount('a', 1)],
+      usage: { a: expired(T0) },
+      policy: { keepAlive: true },
+    })
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    expect(calls.openWindow).toEqual(['a'])
+  })
+})
