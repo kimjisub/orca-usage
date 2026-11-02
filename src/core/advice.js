@@ -148,6 +148,8 @@ export function scoreAccounts(rows, historyById, now = Date.now()) {
       // 자격증명이 끊긴 계정은 숫자가 아무리 좋아도 붙을 수 없다. 캐시에 남은
       // 사용량만 보면 여기로 옮겨 놓고 새 세션마다 인증에 실패하게 된다.
       authFailed: Boolean(row.authFailed),
+      // Ultra 는 5h 한도가 없다. 그때 shortPct 는 0 이라 단기 여력이 가득 찬 것으로 친다.
+      hasShort: Boolean(short),
       shortPct,
       weeklyPct,
       // 지금 당장 더 태울 수 있는 양. 5시간 창이 곧 회복되므로 한때의 제약이다.
@@ -175,6 +177,7 @@ function reasonFor(entry) {
   if (entry.weeklyBehind >= tuning().wasteAlert) {
     return `주간 ${Math.round(entry.weeklyBehind)}%p 뒤처짐`
   }
+  if (!entry.hasShort) return `주간 ${Math.round(entry.reserve)}% 남음`
   return `주간 ${Math.round(entry.reserve)}%, 5h ${Math.round(entry.burst)}% 남음`
 }
 

@@ -37,13 +37,18 @@ export function isAbandoned(expiresAt, now = Date.now()) {
  *
  * 둘을 따로 본다. 주기가 달라 5h 가 열려 있는데 7d 만 닫힌 때가 온다. 5h 만
  * 보면 그 계정의 주간 시계는 다음에 누가 쓸 때까지 선 채로 있다.
+ *
+ * 계정이 보고하는 창만 본다. Ultra(옛 Max 20x)는 5h 한도가 없어 서버가 7d 만
+ * 준다. 실측 2026-11-02: 그 셋을 "5h 가 닫혔다" 로 읽어 10분마다 창 열기 요청을
+ * 보내고 있었다(하루 371건). 그 전에는 7d 가 온 샘플 8,900여 개 모두에 5h 가
+ * 함께 있었으므로, 7d 만 오면 그 요금제에 5h 가 없는 것이다. 둘 다 없으면 아직
+ * 한 번도 안 쓴 계정이라 연다.
  */
 export function needsOpening(row, now = Date.now()) {
   if (row.provider !== 'claude' || row.authFailed || !row.usage) return false
-  const windows = row.usage.windows ?? []
-  return CYCLE_WINDOWS.some((label) => {
-    const window = windows.find((entry) => entry.label === label)
-    if (!window) return true
+  const windows = (row.usage.windows ?? []).filter((entry) => CYCLE_WINDOWS.includes(entry.label))
+  if (windows.length === 0) return true
+  return windows.some((window) => {
     const left = msUntil(window.resetsAt, now)
     return left == null || left <= 0
   })

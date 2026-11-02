@@ -7,11 +7,11 @@ Watches the Claude and Codex accounts managed by [Orca](https://orca.computer): 
   5h     ━━━━━━━━━━│━━━━━━━━━━━━━━  27%  1.1/4    ● 5h
   7d     ━━━━━━━━━━━━━│━━━━━━━━━━━  37%  1.5/4     100 ┼
                                                        ┤                    ──
-  1  * alice@example.com  [Max 20x]                    ┤              ╭────
+  1  * alice@example.com  [Max]                        ┤              ╭────
      5h     ━━━│━━━━━━━━━━━━━━━━━━  16%   4h 16m    75 ┤              ╯
      7d     ━━━━━━━━━│━━━━━━━━━━━━   9%   4d 10h       ┤           ╭─
                                                        ┤          ╭╯
-> 2    bob@example.com  [Max 20x]                   50 ┤         ╭╯
+> 2    bob@example.com  [Max]                       50 ┤         ╭╯
      5h     ━━━━━━━━━━━━━━━━│━━━━━  86%   1h 46m       ┤        ╭╯
      7d     ━━━━━━━│━━━━━━━━━━━━━━  36%   4d 21h       ┤   ╭─  ╭╯
                                                     25 ┤╭──╯   ╯
@@ -165,7 +165,7 @@ orca-usage --graph block       draw level lines with box characters instead of b
 - **Leaves gaps where there is no data.** Sampling gaps are drawn as gaps, not as a flat line carried forward from the last reading.
 - **Keeps a control log.** The 기록 tab lists what the backend did on its own, newest first: polls when the result changed, every token refresh, window opening and account switch, with failures in red. Screen notices disappear after eight seconds, so this is where "why did the account change" gets answered. The last 500 entries persist, and the cycle trigger reads its ten-minute cooldown from them.
 - **Shows the week ahead.** The 일정 tab draws the next seven days one hour per cell, coloured by how much weekly headroom the accounts together will have then. Resets are exact; the stretch between them is projected from the observed burn rate. Today's row is split per account so you can see who is blocked and when it clears. A `!` marks hours where an account will reset with more than 15% left unspent.
-- **Scores every account and shows the working.** Three metrics are normalised and weighted into one number: how far behind the weekly window's own clock the account is, how much of the 5h window is left right now, and how much of the week is left. The 판정 tab draws each account's score as a stacked bar with the per-metric contributions, then a table naming what each metric measures next to its weight and every account's raw value for it. Weights can be changed right there, so the ranking can be tuned while watching it reorder.
+- **Scores every account and shows the working.** Three metrics are normalised and weighted into one number: how far behind the weekly window's own clock the account is, how much of the 5h window is left right now (all of it on a plan without one, such as Ultra), and how much of the week is left. The 판정 tab draws each account's score as a stacked bar with the per-metric contributions, then a table naming what each metric measures next to its weight and every account's raw value for it. Weights can be changed right there, so the ranking can be tuned while watching it reorder.
 - **Scores accounts.** The 판정 tab ranks the Claude accounts by how much of their windows they would waste if left idle, and highlights the one to use now.
 - **Hides accounts you do not use.** `x` drops one from the list, the totals, the recommendation and auto-switching alike. `X` brings them back into view greyed out, still excluded from every judgement. Polling and history carry on, so the graph is unbroken when you unhide it. The account Orca is attached to can be hidden too, which also takes it out of that provider's totals; press `X` if the account count looks short.
 - **Switches accounts.** Manually with Enter, or automatically when the account you are on gets close to its limit.
@@ -200,7 +200,7 @@ On the 설정 and 판정 panels, `Enter` opens an edit mode and only then do lef
 | Marker | Meaning |
 | --- | --- |
 | `*` | The account Orca is attached to right now, one per provider |
-| `[Max 20x]`, `[Pro]` | The account's plan |
+| `[Ultra]`, `[Max]`, `[Pro]` | The account's plan, named the way Claude names it: the 20x Max tier is Ultra |
 | `[..., 시스템 기본]` | A Codex login Orca does not manage: the system default in `~/.codex/auth.json` |
 | Red name | Credentials are broken; sign in again in Orca. The reason is printed next to the name |
 | 리셋 크레딧 | Codex only. Spending one empties the short window straight away |
@@ -231,7 +231,7 @@ Off by default; `a` turns it on, and it only moves between Claude accounts. When
 
 ### Opening windows ahead of time
 
-Off by default; `o` turns it on. One request starts both the 5h and 7d windows, but they reset on different cycles, so a 7d window can be closed while the 5h one is still running; both are checked. The same account is not touched twice within ten minutes.
+Off by default; `o` turns it on. One request starts both the 5h and 7d windows, but they reset on different cycles, so a 7d window can be closed while the 5h one is still running; both are checked. Only the windows an account reports count: Ultra has had no 5h limit since 2026-10-31, so only its 7d window is checked. The same account is not touched twice within ten minutes.
 
 ### Thresholds
 

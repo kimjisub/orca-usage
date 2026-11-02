@@ -43,6 +43,18 @@ describe('needsOpening', () => {
     const row = { provider: 'claude', usage: { windows: [open('5h', MINUTE), open('7d', -MINUTE)] } }
     expect(needsOpening(row, NOW)).toBe(true)
   })
+  test('5h 한도가 없는 요금제는 7d 가 돌고 있으면 열 것이 없다', () => {
+    const row = { provider: 'claude', usage: { windows: [open('7d', MINUTE), open('Fable', -MINUTE)] } }
+    expect(needsOpening(row, NOW)).toBe(false)
+  })
+  test('5h 한도가 없는 요금제도 7d 가 닫히면 연다', () => {
+    const row = { provider: 'claude', usage: { windows: [open('7d', -MINUTE)] } }
+    expect(needsOpening(row, NOW)).toBe(true)
+  })
+  test('창을 하나도 보고하지 않은 계정은 연다', () => {
+    const row = { provider: 'claude', usage: { windows: [] } }
+    expect(needsOpening(row, NOW)).toBe(true)
+  })
   test('자격증명이 끊긴 계정은 열지 않는다', () => {
     const row = { provider: 'claude', authFailed: true, usage: { windows: [] } }
     expect(needsOpening(row, NOW)).toBe(false)

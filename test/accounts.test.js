@@ -50,7 +50,7 @@ describe('Orca 가 켜져 있을 때', () => {
     expect(accounts.map((account) => [account.index, account.id, account.email, account.label, account.active ?? null]))
       .toEqual([
         [1, 'b-new', 'new@x.com', 'Max', false],
-        [2, 'a-old', 'old@x.com', 'Max 20x', true],
+        [2, 'a-old', 'old@x.com', 'Ultra', true],
         [3, 'cx', 'cx@x.com', 'Pro', null],
       ])
   })

@@ -27,11 +27,17 @@ function activeAccountUuid() {
   return readJson(path.join(io.home, '.claude.json'))?.oauthAccount?.accountUuid ?? null
 }
 
-/** 화면에 붙일 짧은 꼬리표. 조직명이 이메일과 겹치면 요금제를 대신 쓴다. */
+/**
+ * 화면에 붙일 짧은 꼬리표. 조직명이 이메일과 겹치면 요금제를 대신 쓴다.
+ *
+ * 요금제 이름은 Claude 가 부르는 대로 쓴다. 실측 2026-11-02: max_20x 계정은
+ * /api/oauth/profile 의 plan_display_name 이 "Ultra" 로 왔고, max_5x 는 그 값이
+ * 없어 Claude Code 도 "Claude Max" 로 띄운다. 등급 값은 둘 다 그대로다.
+ */
 function labelFor({ email, organizationName, tier, organizationType }) {
   const org = organizationName ?? ''
   if (org && !org.startsWith(email ?? '')) return org
-  if (tier.includes('max_20x')) return 'Max 20x'
+  if (tier.includes('max_20x')) return 'Ultra'
   if (tier.includes('max')) return 'Max'
   if (tier.includes('pro')) return 'Pro'
   return organizationType === 'claude_max' ? 'Max' : ''
