@@ -78,7 +78,7 @@ export function AccountBlock({
 
       {/* 쓸 수 있는 리셋. 쓰면 창이 즉시 비므로 몇 번 더 버티느냐와 같다. */}
       {resetLines(row, now).map((line) => (
-        <Text key={line} color="magenta">{`     ${line}`}</Text>
+        <Text key={line.key} color="magenta">{`     ${line.text}`}</Text>
       ))}
 
       {/* 목록의 마지막 블록은 빈 줄을 뺀다. 낮은 화면에서 그 한 줄이 추천을 밀어낸다. */}

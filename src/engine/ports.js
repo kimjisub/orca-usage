@@ -34,6 +34,8 @@
  * @property {(accountId: string) => Promise<{ok: boolean, reason?: string, refreshed?: boolean}>} openWindow
  * @property {(accountId: string) => Promise<{status: object|null, error: string|null}>} [resetStatus]
  *   Claude 리셋권과 세션 리셋의 상태. 읽기만 한다
+ * @property {(accountId: string) => Promise<{plan: {tier: string, planName: string|null, organizationType: string|null}|null, error: string|null}>} [plan]
+ *   Claude 계정의 지금 요금제. 읽기만 한다
  *
  * @typedef {object} StorePort
  * @property {() => object} loadCache

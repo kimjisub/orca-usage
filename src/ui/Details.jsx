@@ -1,7 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import { cellWidth, clockAt, shortSpan } from '../core/format.js'
-import { CLEARS_LABEL, liveGrants } from '../core/resets.js'
+import { CLEARS_LABEL, grantName, liveGrants } from '../core/resets.js'
 
 // 한 줄에 제목과 값. 제목 폭을 맞춰 세로가 줄로 읽힌다. 한글은 두 칸이다.
 const TOPIC_WIDTH = 16
@@ -168,7 +168,7 @@ const RESET_REASON = {
 const reasonText = (reason) => RESET_REASON[reason] ?? reason ?? '대상 아님'
 
 /**
- * 리셋. Claude 는 전체 초기화 권과 주 1회 5시간 초기화, Codex 는 리셋 크레딧이다.
+ * 리셋. Claude 는 리셋권(전체, 모델별)과 주 1회 5시간 초기화, Codex 는 리셋 크레딧이다.
  * Claude 리셋은 이 도구가 쓰지 않는다. 서버가 Claude Code 의 요청만 받는다.
  */
 function resetSection(row, { title, item, now }) {
@@ -191,10 +191,10 @@ function resetSection(row, { title, item, now }) {
   const grants = liveGrants(resets)
   if (grants.length === 0) {
     const used = (resets.grants?.list ?? []).some((grant) => grant.resetsLeft === 0)
-    item('전체 초기화', used ? '사용함' : resets.grants?.eligible === false ? reasonText(resets.grants.reason) : '없음', 'gray')
+    item('리셋권', used ? '사용함' : resets.grants?.eligible === false ? reasonText(resets.grants.reason) : '없음', 'gray')
   }
   for (const grant of grants) {
-    item('전체 초기화', `${grant.resetsLeft}회 남음 (총 ${grant.resetsTotal}회)${grant.endsAt ? `, ${when(grant.endsAt, now)} 까지` : ''}`, 'magenta')
+    item(grantName(grant), `${grant.resetsLeft}회 남음 (총 ${grant.resetsTotal}회)${grant.endsAt ? `, ${when(grant.endsAt, now)} 까지` : ''}`, 'magenta')
     item('  비우는 창', grant.clears.map((key) => CLEARS_LABEL[key] ?? key).join(', ') || '모름', 'gray')
     item('  사용 조건', grant.usableNow ? '지금 가능' : grant.useRequiresLimit ? '한도 도달 시' : '지금 불가', grant.usableNow ? 'white' : 'gray')
     if (grant.label) item('  이름', grant.label, 'gray')

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { parseResetStatus } from '../src/adapters/keychain/resets.js'
+import { parsePlan } from '../src/adapters/keychain/plan.js'
+import { grantName, resetLines } from '../src/core/resets.js'
 import { expectedScope, offerRevision } from '../src/adapters/orca/codex-reset.js'
 
 // 2026-09-30 에 Claude Code User-Agent 로 받은 응답의 모양(값은 줄임).
@@ -72,5 +74,39 @@ describe('Codex 리셋 크레딧 범위', () => {
     const none = { ...LIMITS, rateLimitResetCredits: { ...LIMITS.rateLimitResetCredits, availableCount: 0 } }
     expect(expectedScope({ codex: { accounts: [{ id: 'a', updatedAt: 1 }] }, rateLimits: { codex: none } }, 'a')).toBeNull()
     expect(expectedScope({ codex: { accounts: [] }, rateLimits: { codex: LIMITS } }, 'a')).toBeNull()
+  })
+})
+
+
+// 2026-11-11 에 0226daniel 계정에서 받은 cedar_ember.grants 의 모양(값은 줄임).
+const NOVEMBER = [
+  { id: 'full-reset-2611', label: 'One full limit reset (November 2026)', resets_left: 1, resets_total: 1, ends_at: '2026-12-10T22:00:00+00:00', clears: ['seven_day', 'seven_day_overage_included'], paused: false, usable_now: true },
+  { id: 'launch-2610-fable', label: 'New model launch: one Fable reset for Max, Team Premium and Enterprise Premium', resets_left: 1, resets_total: 1, ends_at: '2027-03-09T07:59:00+00:00', clears: ['seven_day_overage_included'], paused: false, usable_now: true },
+  { id: 'launch-2610-fable-12mo', label: "New model launch: one more Fable reset at 12 months' tenure", resets_left: 1, resets_total: 1, ends_at: '2027-03-09T07:59:00+00:00', clears: ['seven_day_overage_included'], paused: false, usable_now: true },
+  { id: 'launch-2610-fable-6mo', label: "New model launch: one more Fable reset at 6 months' tenure", resets_left: 1, resets_total: 1, ends_at: '2027-03-09T07:59:00+00:00', clears: ['seven_day_overage_included'], paused: false, usable_now: true },
+]
+
+describe('리셋 줄', () => {
+  const row = { provider: 'claude', resets: parseResetStatus({ cedar_ember: { eligible: true, grants: NOVEMBER } }) }
+
+  test('비우는 창으로 이름을 가른다', () => {
+    const [full, fable] = row.resets.grants.list
+    expect(grantName(full)).toBe('전체 초기화')
+    expect(grantName(fable)).toBe('Fable 초기화')
+  })
+
+  test('같은 이름과 기한은 한 줄로 합치고 key 가 겹치지 않는다', () => {
+    const lines = resetLines(row)
+    expect(lines.map((line) => line.text.split(',')[0])).toEqual(['전체 초기화 1회', 'Fable 초기화 3회'])
+    expect(new Set(lines.map((line) => line.key)).size).toBe(lines.length)
+  })
+})
+
+describe('요금제', () => {
+  test('서버 프로필에서 등급과 표시 이름을 꺼낸다', () => {
+    expect(parsePlan({ organization: { rate_limit_tier: 'default_claude_max_20x', plan_display_name: 'Ultra', organization_type: 'claude_max' } }))
+      .toEqual({ tier: 'default_claude_max_20x', planName: 'Ultra', organizationType: 'claude_max' })
+    expect(parsePlan({ organization: { rate_limit_tier: 'default_claude_max_5x', organization_type: 'claude_max' } }).planName).toBeNull()
+    expect(parsePlan({ error: { type: 'authentication_error' } })).toBeNull()
   })
 })

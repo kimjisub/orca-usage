@@ -31,7 +31,7 @@ export function limits(now, { short = 10, weekly = 10, weeklyResetIn = 3 * 24 * 
 }
 
 export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {}, policy = {}, codexKnown = true }) {
-  const calls = { select: [], refresh: [], peek: [], openWindow: [], notify: [], fetchLimits: 0, resetStatus: [], consume: [] }
+  const calls = { select: [], refresh: [], peek: [], openWindow: [], notify: [], fetchLimits: 0, resetStatus: [], plan: [], consume: [] }
   const state = {
     accounts,
     usage,
@@ -40,6 +40,7 @@ export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {},
     refresh: {},
     refreshExpiry: {},
     resets: {},
+    plans: {},
     consumeResult: { outcome: 'reset', restored: true },
     policy: {
       autoSwitch: false, keepAlive: false, notifications: true, tuning: {}, hiddenIds: [], lastSwitchAt: 0,
@@ -102,6 +103,10 @@ export function makePorts({ now, accounts, usage = {}, active = {}, expiry = {},
       resetStatus: async (id) => {
         calls.resetStatus.push(id)
         return state.resets[id] ?? { status: null, error: '없음' }
+      },
+      plan: async (id) => {
+        calls.plan.push(id)
+        return state.plans[id] ?? { plan: null, error: '없음' }
       },
       openWindow: async (id) => {
         calls.openWindow.push(id)

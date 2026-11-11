@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { advise, scoreAccounts } from '../core/advice.js'
 import { decideSwitch } from '../core/autoswitch.js'
 import { liveWindows } from '../core/format.js'
+import { withPlan } from '../core/plan.js'
 import { isAbandoned, needsOpening, refuseManualRefresh } from '../core/policy.js'
 import { TUNABLES, TUNING_DEFAULTS, applyTuning, formatTuning, tuning } from '../core/tuning.js'
 import { pollOnce, rowsFromCache } from './poller.js'
@@ -13,6 +14,8 @@ const DERIVE_MS = 60_000
 // Claude 리셋 상태를 다시 묻는 간격. 권은 자주 바뀌지 않고, 이 조회도 사용량 API
 // 와 같은 호출 예산(계정당 5분에 5회)에서 나간다.
 const RESET_STATUS_MS = 30 * 60_000
+// 요금제를 서버에 다시 묻는 간격. 업그레이드는 드물고, 늦어도 이만큼 뒤에 화면에 뜬다.
+const PLAN_MS = 6 * 3_600_000
 // Codex 리셋 크레딧 결과를 기록 문장으로.
 const RESET_OUTCOME = {
   reset: '리셋 크레딧 사용, 사용 창 초기화',
@@ -104,6 +107,8 @@ export class Engine extends EventEmitter {
     this.refreshExpiry = new Map()
     // Claude 리셋권과 세션 리셋 상태. 계정마다 {status, error, at}.
     this.resetStatus = new Map()
+    // 서버에서 받은 Claude 요금제. 계정마다 {plan, at}. 못 받았으면 목록의 값(프로필 파일)을 쓴다.
+    this.plans = new Map()
     // 만료 경고를 어디까지 보냈나. 계정마다 "기한:단계" 를 적어 같은 단계를 두 번 알리지 않는다.
     this.refreshWarned = new Map()
   }
@@ -233,6 +238,7 @@ export class Engine extends EventEmitter {
       this.noteAuth(fresh)
       await this.reauth()
       await this.readResets()
+      await this.readPlans()
       this.readCodexTokens()
       if (this.policy.keepAlive) await this.openWindows()
       this.derive()
@@ -280,6 +286,7 @@ export class Engine extends EventEmitter {
       if (gone.length) this.note('poll', `계정 이탈: ${gone.length}개`)
     }
     this.knownIds = ids
+    all = all.map((account) => withPlan(account, this.plans.get(account.id)?.plan))
     this.accounts = all
 
     // 들고 있던 값은 지우지 않는다. 새로 합류한 계정만 캐시에서 온다.
@@ -833,6 +840,40 @@ export class Engine extends EventEmitter {
       if (result.status && seen?.status && count(result.status) > count(seen.status)) {
         this.note('reset', `Claude 리셋권 추가, 남은 횟수 ${count(result.status)}`, { email: account.email })
       }
+    }
+  }
+
+  /**
+   * Claude 계정의 요금제를 서버에 묻는다. 계정마다 6시간에 한 번이다. 바뀌었으면
+   * 계정과 행의 꼬리표를 바로 고치고 기록에 남긴다.
+   */
+  async readPlans() {
+    const read = this.ports.keychain.plan
+    if (!read) return
+    const now = this.now()
+    for (const account of this.accounts) {
+      if (account.provider !== 'claude') continue
+      const seen = this.plans.get(account.id)
+      if (seen && now - seen.at < PLAN_MS) continue
+      let result
+      try {
+        result = await read(account.id)
+      } catch (error) {
+        result = { plan: null, error: error.message }
+      }
+      // 못 읽었으면 다음 조회에서 다시 묻는다. 들고 있던 요금제는 둔다.
+      if (!result.plan) {
+        if (seen) this.plans.set(account.id, { ...seen, at: now })
+        continue
+      }
+      this.plans.set(account.id, { plan: result.plan, at: now })
+      const next = withPlan(account, result.plan)
+      if (next.label === account.label && next.tier === account.tier) continue
+      if (account.tier && next.tier !== account.tier) {
+        this.note('poll', `요금제 변경: ${account.label || account.tier} -> ${next.label || next.tier}`, { email: account.email })
+      }
+      this.accounts = this.accounts.map((entry) => (entry.id === account.id ? next : entry))
+      this.rows = this.rows.map((row) => (row.id === account.id ? { ...row, label: next.label } : row))
     }
   }
 

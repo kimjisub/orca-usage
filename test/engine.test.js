@@ -410,3 +410,39 @@ describe('리셋이 지난 창', () => {
     expect(calls.openWindow).toEqual(['a'])
   })
 })
+
+
+describe('요금제', () => {
+  const ultra = { plan: { tier: 'default_claude_max_20x', planName: 'Ultra', organizationType: 'claude_max' }, error: null }
+
+  test('서버 요금제로 꼬리표를 고치고 6시간 동안 다시 묻지 않는다', async () => {
+    const stale = claudeAccount('a', 1, { label: 'Max', tier: 'default_claude_max_5x', organizationType: 'claude_max' })
+    const { engine, state, calls, advance } = setup({ accounts: [stale], usage: { a: limits(T0) } })
+    state.plans.a = ultra
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    expect(engine.snapshot().accounts[0].label).toBe('Ultra')
+    await engine.cycle()
+    expect(engine.snapshot().accounts[0].label).toBe('Ultra')
+    expect(calls.plan).toEqual(['a'])
+    advance(6 * HOUR + 1)
+    await engine.cycle()
+    expect(calls.plan).toEqual(['a', 'a'])
+  })
+
+  test('못 받으면 목록의 꼬리표를 둔다', async () => {
+    const { engine } = setup({ accounts: [claudeAccount('a', 1, { label: 'Max', tier: 'default_claude_max_5x' })], usage: { a: limits(T0) } })
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    expect(engine.snapshot().accounts[0].label).toBe('Max')
+  })
+
+  test('조직명이 붙은 계정은 요금제로 바꾸지 않는다', async () => {
+    const team = claudeAccount('a', 1, { label: 'Acme', tier: 'default_claude_max_5x', organizationName: 'Acme' })
+    const { engine, state } = setup({ accounts: [team], usage: { a: limits(T0) } })
+    state.plans.a = ultra
+    await engine.start({ schedule: false })
+    await engine.cycle()
+    expect(engine.snapshot().accounts[0].label).toBe('Acme')
+  })
+})

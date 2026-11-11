@@ -6,6 +6,7 @@ import { ensureToken, fetchUsage, normalize } from '../adapters/keychain/oauth.j
 import { openWindow } from '../adapters/keychain/keepalive.js'
 import { peekToken, refreshNow } from '../adapters/keychain/tokens.js'
 import { readResetStatus } from '../adapters/keychain/resets.js'
+import { readPlan } from '../adapters/keychain/plan.js'
 import { consumeCodexResetCredit } from '../adapters/orca/codex-reset.js'
 import {
   appendHistory, loadCache, loadHistory, saveCache, saveHistory, updateCache,
@@ -39,6 +40,7 @@ export function createPorts({ updater } = {}) {
     keychain: {
       ensureToken, fetchUsage, normalize, peekToken, refresh: refreshNow, openWindow,
       resetStatus: readResetStatus,
+      plan: readPlan,
     },
     store: {
       loadCache, saveCache, updateCache, loadHistory, saveHistory, appendHistory,

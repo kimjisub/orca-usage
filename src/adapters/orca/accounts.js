@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fetchOrcaLimits } from './orca-limits.js'
 import { HOME, ORCA_PROFILES } from '../../paths.js'
+import { claudeLabel } from '../../core/plan.js'
 
 /** 바꿔 끼울 수 있는 바깥. 테스트가 Orca 와 폴더를 가짜로 바꾼다. */
 export const io = { fetch: fetchOrcaLimits, profiles: ORCA_PROFILES, home: HOME }
@@ -27,37 +28,26 @@ function activeAccountUuid() {
   return readJson(path.join(io.home, '.claude.json'))?.oauthAccount?.accountUuid ?? null
 }
 
-/**
- * 화면에 붙일 짧은 꼬리표. 조직명이 이메일과 겹치면 요금제를 대신 쓴다.
- *
- * 요금제 이름은 Claude 가 부르는 대로 쓴다. 실측 2026-11-02: max_20x 계정은
- * /api/oauth/profile 의 plan_display_name 이 "Ultra" 로 왔고, max_5x 는 그 값이
- * 없어 Claude Code 도 "Claude Max" 로 띄운다. 등급 값은 둘 다 그대로다.
- */
-function labelFor({ email, organizationName, tier, organizationType }) {
-  const org = organizationName ?? ''
-  if (org && !org.startsWith(email ?? '')) return org
-  if (tier.includes('max_20x')) return 'Ultra'
-  if (tier.includes('max')) return 'Max'
-  if (tier.includes('pro')) return 'Pro'
-  return organizationType === 'claude_max' ? 'Max' : ''
-}
-
 function claudeAccount({ id, email, organizationName }, active) {
   const profile = profileAccount(id)
   const tier = profile?.organizationRateLimitTier ?? ''
   const address = email ?? profile?.emailAddress ?? id.slice(0, 8)
+  const org = organizationName ?? profile?.organizationName
   return {
     id,
     provider: 'claude',
     email: address,
-    label: labelFor({
+    label: claudeLabel({
       email: address,
-      organizationName: organizationName ?? profile?.organizationName,
+      organizationName: org,
       tier,
       organizationType: profile?.organizationType,
+      planName: profile?.planDisplayName,
     }),
     tier,
+    // 서버에서 요금제를 다시 받았을 때 꼬리표를 같은 규칙으로 다시 세우려고 들고 간다.
+    organizationName: org ?? null,
+    organizationType: profile?.organizationType ?? null,
     active,
   }
 }

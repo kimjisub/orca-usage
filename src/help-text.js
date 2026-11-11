@@ -96,8 +96,9 @@ export const HELP = `orca-usage - Orca 가 관리하는 Claude 와 Codex 계정�
      Codex 는 고른 계정의 리셋 크레딧 1개를 써서 사용 창을 바로 비웁니다. 확인
      창이 열리고 요약, 계정 이름 입력, 마지막 확인의 세 단계를 지나야 씁니다.
      다른 계정이면 Orca 에서 잠시 옮겨 쓰고 되돌립니다.
-     Claude 는 전체 초기화(받은 권, 5h 와 7d 를 함께 비움)와 주 1회 5시간
-     초기화(5h 한도에 닿았을 때)가 있습니다. 서버가 Claude Code 의 요청만 받으므로
+     Claude 는 받은 리셋권과 주 1회 5시간 초기화(5h 한도에 닿았을 때)가
+     있습니다. 리셋권은 비우는 창으로 이름이 갈립니다. 전체 초기화는 7d 를
+     비우고, Fable 초기화 같은 모델 이름 권은 그 모델의 추가 한도만 비웁니다. 서버가 Claude Code 의 요청만 받으므로
      그 계정으로 연 Claude Code 에서 /usage-credits 로 씁니다. 남은 것은 목록과
      상세 탭에 보입니다.
 
@@ -202,7 +203,8 @@ export const HELP = `orca-usage - Orca 가 관리하는 Claude 와 Codex 계정�
 
 계정 표시:
   *         이름 앞의 별표는 Orca 가 지금 붙어 있는 계정입니다. provider 마다 따로입니다
-  [Ultra]   이름 뒤 대괄호는 요금제입니다. Claude 는 계정 메타에서, Codex 는
+  [Ultra]   이름 뒤 대괄호는 요금제입니다. Claude 는 서버에 6시간마다 묻고
+            (못 받으면 프로필의 계정 메타), Codex 는
             Orca 가 계정마다 두는 auth.json 의 id_token 클레임에서 읽습니다.
             Orca 가 목록에 실어 주는 값은 예전에 붙인 계정에서 비어 있습니다
   리셋 크레딧  Codex 에만 있습니다. 쓰면 짧은 창이 즉시 비워집니다
