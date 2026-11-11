@@ -298,6 +298,7 @@ export class Engine extends EventEmitter {
       provider: row.provider,
       email: row.email,
       label: row.label,
+      tier: row.tier,
     }))
     return all
   }
@@ -873,7 +874,7 @@ export class Engine extends EventEmitter {
         this.note('poll', `요금제 변경: ${account.label || account.tier} -> ${next.label || next.tier}`, { email: account.email })
       }
       this.accounts = this.accounts.map((entry) => (entry.id === account.id ? next : entry))
-      this.rows = this.rows.map((row) => (row.id === account.id ? { ...row, label: next.label } : row))
+      this.rows = this.rows.map((row) => (row.id === account.id ? { ...row, label: next.label, tier: next.tier } : row))
     }
   }
 

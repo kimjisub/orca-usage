@@ -421,9 +421,9 @@ describe('요금제', () => {
     state.plans.a = ultra
     await engine.start({ schedule: false })
     await engine.cycle()
-    expect(engine.snapshot().accounts[0].label).toBe('Ultra')
+    expect(engine.snapshot().accounts[0]).toMatchObject({ label: 'Ultra', tier: 'default_claude_max_20x' })
     await engine.cycle()
-    expect(engine.snapshot().accounts[0].label).toBe('Ultra')
+    expect(engine.snapshot().accounts[0]).toMatchObject({ label: 'Ultra', tier: 'default_claude_max_20x' })
     expect(calls.plan).toEqual(['a'])
     advance(6 * HOUR + 1)
     await engine.cycle()
