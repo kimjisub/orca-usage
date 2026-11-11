@@ -93,6 +93,8 @@ describe('리셋 줄', () => {
     const [full, fable] = row.resets.grants.list
     expect(grantName(full)).toBe('전체 초기화')
     expect(grantName(fable)).toBe('Fable 초기화')
+    // 5h 가 있는 Max 계정(claude2, 2026-11-11)에서는 Fable 권이 5h 도 비운다.
+    expect(grantName({ ...fable, clears: ['five_hour', 'seven_day_overage_included'] })).toBe('Fable 초기화')
   })
 
   test('같은 이름과 기한은 한 줄로 합치고 key 가 겹치지 않는다', () => {

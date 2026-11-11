@@ -17,11 +17,12 @@ export const liveGrants = (resets) => (resets?.grants?.list ?? []).filter((grant
  *
  * 실측 2026-11-11: 11월 전체 리셋(full-reset-2611)은 7d 와 추가 사용 한도를 함께
  * 비우고, Fable 출시 기념 권(launch-2610-fable*)은 추가 사용 한도만 비운다.
+ * 5h 가 있는 Max 계정에서는 Fable 권이 5h 도 함께 비우므로 5h 로는 가르지 않는다.
  * 가입 기간에 따라 Fable 권이 셋까지 나와 모두 "전체 초기화" 로 적으면 7d 를
  * 세 번 더 비울 수 있는 것으로 읽힌다.
  */
 export function grantName(grant) {
-  if (grant.clears.includes('seven_day') || grant.clears.includes('five_hour')) return '전체 초기화'
+  if (grant.clears.includes('seven_day')) return '전체 초기화'
   const model = /\b(Fable|Opus|Sonnet|Haiku)\b/.exec(grant.label ?? '')?.[1]
   return model ? `${model} 초기화` : `${grant.clears.map((key) => CLEARS_LABEL[key] ?? key).join(', ') || '사용 한도'} 초기화`
 }
